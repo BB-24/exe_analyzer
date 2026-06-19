@@ -1,0 +1,124 @@
+{
+    "Analysis_Summary": {
+        "Analysis ID": "REDESIGN_001",
+        "Filename": "malware_sample.exe",
+        "Extension": ".exe",
+        "File Size": "40960 bytes",
+        "SHA256": "aabbccddee112233445566778899aabbccddee112233445566778899aabb1122",
+        "Submission Timestamp": "2026-06-19 12:00:00"
+    },
+    "Package_Extraction": [
+        {
+            "Relative_Path": "dropper/payload.exe",
+            "Extension": ".exe",
+            "Size_Bytes": 8192,
+            "SHA256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "Is_Flagged": true
+        },
+        {
+            "Relative_Path": "config/settings.ini",
+            "Extension": ".ini",
+            "Size_Bytes": 512,
+            "SHA256": "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
+            "Is_Flagged": false
+        }
+    ],
+    "Static_Analysis_Results": {
+        "malware_sample.exe": {
+            "PE Headers": {
+                "Machine Architecture": "0x14c",
+                "Compile Timestamp": "2025-01-15 08:30:00",
+                "Address of Entry Point": "0x1234",
+                "Image Base": "0x400000",
+                "Number of Sections": 5
+            },
+            "Mitigations": {
+                "DEP / NX Bit": "Enabled",
+                "ASLR": "Disabled",
+                "Stack Canaries (/GS)": "Disabled [WARNING]"
+            },
+            "Sections": {
+                "Section: .text": "Perms: R-E | Entropy: 6.12",
+                "Section: .data": "Perms: RW- | Entropy: 7.85 [PACKED/HIGH ENTROPY]"
+            },
+            "Suspicious Imports": {
+                "Tracked APIs Found": 3,
+                "APIs": "CreateRemoteThread, VirtualAllocEx"
+            },
+            "YARA Signatures": {
+                "Hits": 2,
+                "Matched Rules": "Mitre_T1055_ProcessInjection"
+            }
+        }
+    },
+    "Dynamic_Analysis_Results": {
+        "malware_sample.exe": {
+            "Filesystem": [
+                "FILE_DROP: C:/Windows/Temp/svchost32.exe"
+            ],
+            "Registry": [
+                "REG_SET: HKCU/Run/updater"
+            ],
+            "Persistence": [
+                "REG_RUN_KEY: HKCU Run -> svchost32.exe"
+            ],
+            "Processes": [
+                "PROCESS_INJECT: lsass.exe (PID 840)"
+            ],
+            "Memory": [],
+            "Hardware": [],
+            "Network": [
+                "DNS: evil-c2.example.com",
+                "HTTP: GET /payload.bin"
+            ],
+            "System": [
+                "UAC bypass attempted"
+            ]
+        }
+    },
+    "Dynamic_Summary": {
+        "malware_sample.exe": {
+            "Filesystem": {
+                "count": 1,
+                "notable": [
+                    "FILE_DROP"
+                ]
+            },
+            "Network": {
+                "count": 2,
+                "notable": [
+                    "DNS",
+                    "HTTP"
+                ]
+            },
+            "Persistence": {
+                "count": 1,
+                "notable": [
+                    "REG_RUN_KEY"
+                ]
+            },
+            "Processes": {
+                "count": 1,
+                "notable": [
+                    "PROCESS_INJECT"
+                ]
+            },
+            "Registry": {
+                "count": 1,
+                "notable": []
+            },
+            "Memory": {
+                "count": 0,
+                "notable": []
+            },
+            "Hardware": {
+                "count": 0,
+                "notable": []
+            },
+            "System": {
+                "count": 1,
+                "notable": []
+            }
+        }
+    }
+}
