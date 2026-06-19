@@ -1,0 +1,18 @@
+{
+    "Analysis_Summary": {
+        "Analysis ID": "MARS-20260617222635-E088B8",
+        "Original File Name": "dummy_test_sample.exe",
+        "File Size (Bytes)": 202,
+        "Extension": ".exe",
+        "Creation Timestamp": "2026-06-17 22:26:35",
+        "Magic Bytes (Hex)": "4D5A0000",
+        "MIME/Format Guess": "application/x-msdownload (PE Executable)",
+        "MD5": "16b9c6dc93f9997f262905b0efbff21a",
+        "SHA1": "58b8e50e1ee468db5ace6ff1f0f439155303c9a3",
+        "SHA256": "dcb8daf9f7b51b4b6b1e63bb86347ec9bb8b08198e03c4c890b6e3ac7144f8ea",
+        "SHA512": "74911ea572927a82103eb0ef633fc29c65659f11caea65989868f446c78b0773a822d052852f7f99db1ba58adbe11fe786e90d26d64955c62e2cceaddc927afa"
+    },
+    "Package_Extraction": [],
+    "Static_Analysis_Results": {},
+    "Dynamic_Analysis_Results": {}
+}

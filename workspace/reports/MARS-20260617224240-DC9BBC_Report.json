@@ -1,0 +1,85 @@
+{
+    "Analysis_Summary": {
+        "Analysis ID": "MARS-20260617224240-DC9BBC",
+        "Original File Name": "reverse_shell.exe",
+        "File Size (Bytes)": 40850,
+        "Extension": ".exe",
+        "Creation Timestamp": "2026-06-11 23:57:00",
+        "Magic Bytes (Hex)": "4D5A9000",
+        "MIME/Format Guess": "application/x-msdownload (PE Executable)",
+        "MD5": "0c411b04b00fb818b42ba31a0d5e1751",
+        "SHA1": "8fc4a3868898c2b50d85e81b888d6bf8f5698cd8",
+        "SHA256": "e7dea3de7e8ca278175fbea753cd56f8c76661909df630f9ee08c8c7b1a51878",
+        "SHA512": "d9a7f9309e006f5e9cec572562d992d5a1812fd6b2df118505c511d9494a9889d491b8c398095bfa899febce4eb81cbe76e3fff91812eff667a6417b0af3270a"
+    },
+    "Package_Extraction": [],
+    "Static_Analysis_Results": {
+        "reverse_shell.exe": {
+            "PE Headers": {
+                "Machine Architecture": "0x14c",
+                "Compile Timestamp": "2026-04-04 23:24:16",
+                "DOS Header Offset (e_lfanew)": "0x80",
+                "Address of Entry Point": "0x12e0",
+                "Image Base": "0x400000",
+                "Number of Sections": 13
+            },
+            "Mitigations": {
+                "DEP / NX Bit": "Disabled",
+                "ASLR": "Disabled",
+                "CFG (Control Flow Guard)": "Disabled",
+                "RFG (Return Flow Guard)": "Disabled",
+                "SafeSEH": "Disabled",
+                "Stack Canaries (/GS)": "Disabled",
+                "Hardware Protection (CET/Shadow Stack)": "Disabled",
+                "Force Integrity": "Disabled",
+                "Isolation / AppContainer": "Disabled"
+            },
+            "Sections": {
+                "Section: .text": "Perms: R-E | Entropy: 6.19 ",
+                "Section: .data": "Perms: RW- | Entropy: 0.22 ",
+                "Section: .rdata": "Perms: R-- | Entropy: 4.79 ",
+                "Section: /4": "Perms: R-- | Entropy: 4.73 ",
+                "Section: .bss": "Perms: RW- | Entropy: 0.00 ",
+                "Section: .idata": "Perms: RW- | Entropy: 4.57 ",
+                "Section: .CRT": "Perms: RW- | Entropy: 0.11 ",
+                "Section: .tls": "Perms: RW- | Entropy: 0.22 ",
+                "Section: /14": "Perms: R-- | Entropy: 0.22 ",
+                "Section: /29": "Perms: R-- | Entropy: 5.77 ",
+                "Section: /41": "Perms: R-- | Entropy: 3.04 ",
+                "Section: /55": "Perms: R-- | Entropy: 4.32 ",
+                "Section: /67": "Perms: R-- | Entropy: 0.67 "
+            },
+            "Suspicious Imports": {
+                "Tracked APIs Found": 0,
+                "APIs": "None detected"
+            },
+            "Manifest Data": {
+                "Manifest Status": "Not Found",
+                "Requested Execution Level": "Unknown"
+            },
+            "Strings Analytics": {
+                "IPv4": 1,
+                "IPv6": 0,
+                "URL": 0,
+                "Registry": 0,
+                "Email": 0,
+                "Password-Like": 0
+            },
+            "Extracted Artifacts": {
+                "IPv4": [
+                    "10.9.1.6"
+                ],
+                "IPv6": [],
+                "URL": [],
+                "Registry": [],
+                "Email": [],
+                "Password-Like": []
+            },
+            "YARA Signatures": {
+                "Hits": 0,
+                "Matched Rules": "Clean"
+            }
+        }
+    },
+    "Dynamic_Analysis_Results": {}
+}
