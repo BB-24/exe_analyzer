@@ -1,0 +1,76 @@
+{
+    "Analysis_Summary": {
+        "Analysis ID": "SMOKE_TEST_001",
+        "Filename": "test.exe",
+        "SHA256": "abc123",
+        "File Size": "4096 bytes",
+        "YARA Matches": [
+            "[WARNING] Suspicious import: CreateRemoteThread"
+        ]
+    },
+    "Package_Extraction": [
+        {
+            "Relative_Path": "payload.exe",
+            "Extension": ".exe",
+            "Size_Bytes": 1024,
+            "SHA256": "def456",
+            "Is_Flagged": true
+        }
+    ],
+    "Static_Analysis_Results": {
+        "test.exe": {
+            "PE Headers": {
+                "Machine": "x86",
+                "TimeDateStamp": "2024-01-01"
+            },
+            "Entropy": {
+                "text": 6.2,
+                "data": 7.8
+            },
+            "Suspicious Imports": [
+                "CreateRemoteThread",
+                "VirtualAllocEx"
+            ]
+        }
+    },
+    "Dynamic_Analysis_Results": {
+        "test.exe": {
+            "Filesystem": [
+                "FILE_DROP: C:/Windows/Temp/mal.exe"
+            ],
+            "Network": [
+                "DNS: evil.com",
+                "HTTP: GET /payload"
+            ],
+            "Registry": [],
+            "Persistence": [
+                "REG_RUN_KEY: HKCU\\Run\\backdoor"
+            ],
+            "Processes": [
+                "PROCESS_SPAWN: cmd.exe"
+            ],
+            "Memory": [],
+            "Hardware": [],
+            "System": [
+                "Agent started"
+            ]
+        }
+    },
+    "Dynamic_Summary": {
+        "test.exe": {
+            "Filesystem": {
+                "count": 1,
+                "notable": [
+                    "FILE_DROP"
+                ]
+            },
+            "Network": {
+                "count": 2,
+                "notable": [
+                    "DNS",
+                    "HTTP"
+                ]
+            }
+        }
+    }
+}
