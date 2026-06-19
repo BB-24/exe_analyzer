@@ -1,6 +1,5 @@
 import os
 import sys
-from tkinter import messagebox
 
 # ==========================================
 # 1. Dependency Pre-flight Checks
@@ -10,7 +9,6 @@ try:
     from pubsub import pub
     import pefile
     import yara
-    import customtkinter
 except ImportError as e:
     print(f"[CRITICAL ERROR] Missing Python dependency: {e}")
     print("Please install the required libraries by running:")
@@ -19,7 +17,6 @@ except ImportError as e:
 
 # Import internal packages
 from core.pipeline import AnalysisPipeline
-from gui.app import MalwareAnalysisGUI
 
 # ==========================================
 # 2. Workspace Initialization
@@ -36,7 +33,7 @@ def initialize_workspace():
         "workspace/extracted",
         "workspace/reports"
     ]
-    
+
     print("[*] Verifying workspace directories...")
     for directory in required_dirs:
         if not os.path.exists(directory):
@@ -51,31 +48,69 @@ def verify_critical_files():
         print("[WARNING] rules/rules.yar is missing! YARA scanning will be skipped.")
 
 # ==========================================
-# 3. Main Application Loop
+# 3. CLI Detection
 # ==========================================
-def main():
+def _is_cli_mode():
+    """
+    Returns True whenever any command-line arguments are present.
+    The GUI launches with no arguments; any argument indicates CLI use.
+    """
+    return len(sys.argv) > 1
+
+# ==========================================
+# 4a. CLI Entry-point
+# ==========================================
+def run_cli():
+    from cli.main import run_cli as _run_cli
+    initialize_workspace()
+    verify_critical_files()
+    _run_cli()
+
+# ==========================================
+# 4b. GUI Entry-point
+# ==========================================
+def run_gui():
+    try:
+        import customtkinter
+        from tkinter import messagebox
+    except ImportError as e:
+        print(f"[CRITICAL ERROR] Missing GUI dependency: {e}")
+        print("Please install the required libraries by running:")
+        print("  pip install -r requirements.txt")
+        sys.exit(1)
+
+    from gui.app import MalwareAnalysisGUI
+
     print("======================================================")
     print(" MARS - Malware Analysis & Reverse-engineering System")
     print("======================================================")
-    
+
     initialize_workspace()
     verify_critical_files()
 
     try:
         print("[*] Initializing Core Backend Pipeline...")
-        # Instantiate the decoupled backend (connects PyPubSub internally)
         pipeline = AnalysisPipeline(config_path="config/config.yaml")
-        
+
         print("[*] Initializing Graphical User Interface...")
         app = MalwareAnalysisGUI()
-        
+
         print("[*] System Online. Waiting for user input via GUI.")
         app.mainloop()
-        
+
     except Exception as e:
         print(f"\n[CRITICAL ERROR] Application failed to launch: {str(e)}")
         messagebox.showerror("Initialization Error", f"The MARS application encountered a fatal error during startup:\n\n{str(e)}")
         sys.exit(1)
+
+# ==========================================
+# 5. Main
+# ==========================================
+def main():
+    if _is_cli_mode():
+        run_cli()
+    else:
+        run_gui()
 
 if __name__ == "__main__":
     main()

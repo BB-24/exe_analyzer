@@ -6,3 +6,11 @@ fpdf2>=2.7.5
 customtkinter>=5.2.0
 scapy
 watchdog
+customtkinter
+fpdf2
+pefile
+PyPubSub
+PyYAML
+scapy
+watchdog
+yara-python
