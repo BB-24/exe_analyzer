@@ -8,6 +8,7 @@ from core.package import PackageModule
 from core.static import StaticModule
 from core.report import ReportGenerator
 from core.dynamic import DynamicController, TELEMETRY_KEYS
+from core.scoring import MARSScorer
 
 
 class AnalysisPipeline:
@@ -19,6 +20,7 @@ class AnalysisPipeline:
         self.package_module = PackageModule(self.config)
         self.static_module  = StaticModule(self.config)
         self.reporter       = ReportGenerator(self.config)
+        self.scorer         = MARSScorer()
 
         try:
             self.dynamic_module = DynamicController(self.config_path)
@@ -174,7 +176,17 @@ class AnalysisPipeline:
                 pub.sendMessage("gui.log", msg="\n[*] Dynamic Analysis skipped by user option.")
 
             # ======================================================
-            # Phase 4: Reporting
+            # Phase 4: Threat Scoring
+            # ======================================================
+            pub.sendMessage("gui.log", msg="\n[*] --- Starting Threat Scoring Engine ---")
+            scoring_results = self.scorer.score_all(
+                report_static_data,
+                report_dynamic_data,
+                pkg_data=report_pkg_data,
+            )
+
+            # ======================================================
+            # Phase 5: Reporting
             # ======================================================
             self.reporter.generate_reports(
                 metadata,
@@ -182,6 +194,7 @@ class AnalysisPipeline:
                 report_static_data,
                 report_dynamic_data,
                 dynamic_summary,
+                scoring_results=scoring_results,
             )
 
             pub.sendMessage("gui.log", msg="\n[*] === Pipeline Execution Completed Successfully ===")

@@ -960,6 +960,7 @@ class ReportGenerator:
         static_data:     dict,
         dynamic_data:    dict | None = None,
         dynamic_summary: dict | None = None,
+        scoring_results: dict | None = None,
     ):
         pub.sendMessage("gui.log", msg="\n[*] --- Starting Reporting Module ---")
 
@@ -969,12 +970,15 @@ class ReportGenerator:
         )
         base = os.path.join(self.reports_dir, f"{analysis_id}_Report")
 
+        scoring_results = scoring_results or {}
+
         compiled = {
             "Analysis_Summary":         metadata,
             "Package_Extraction":       package_data,
             "Static_Analysis_Results":  static_data,
             "Dynamic_Analysis_Results": dynamic_data  or {},
             "Dynamic_Summary":          dynamic_summary or {},
+            "Scoring_Results":          {t: sr.to_dict() for t, sr in scoring_results.items()},
         }
 
         # JSON
@@ -986,16 +990,17 @@ class ReportGenerator:
         # PDF
         pdf_path = f"{base}.pdf"
         try:
-            self._build_pdf(compiled, pdf_path)
+            self._build_pdf(compiled, pdf_path, scoring_results=scoring_results)
             pub.sendMessage("gui.log", msg=f"  [+] PDF Report Saved: {pdf_path}")
         except Exception as exc:
             pub.sendMessage("gui.log", msg=f"  [!] PDF generation failed: {exc}")
             raise
 
     # ── PDF orchestrator ───────────────────────────────────────────────
-    def _build_pdf(self, data: dict, path: str):
+    def _build_pdf(self, data: dict, path: str, *, scoring_results: dict | None = None):
         st   = _styles()
         meta = data.get("Analysis_Summary", {})
+        scoring_results = scoring_results or {}
 
         doc = _MARSDoc(
             path,
@@ -1025,15 +1030,26 @@ class ReportGenerator:
         toc.dotsMinLevel = 0
         toc.levelStyles  = [st["TOC1"], st["TOC2"]]
 
-        # Pre-compute derived data once
-        verdict, score, summary = _compute_verdict(data)
-        iocs                    = _extract_iocs(data)
-        mitre_hits              = _collect_mitre_hits(data)
+        # Derive executive-summary values: prefer ScoringResult if available
+        if scoring_results:
+            # Pick the highest-scoring target as the primary verdict
+            primary_sr = max(scoring_results.values(), key=lambda r: r.total_score)
+            verdict    = primary_sr.verdict
+            score      = primary_sr.total_score
+            summary    = self._build_summary_text(primary_sr)
+        else:
+            verdict, score, summary = _compute_verdict(data)
+            primary_sr = None
+
+        iocs       = _extract_iocs(data)
+        mitre_hits = _collect_mitre_hits(data)
 
         story: list = []
         story += self._page_title(st)
         story += self._page_toc(toc, st)
         story += self._sec_executive_summary(verdict, score, summary, meta, st)
+        if scoring_results:
+            story += self._sec_scoring(scoring_results, st)
         story += self._sec_ioc_summary(iocs, st)
         story += self._sec_mitre_attack(mitre_hits, st)
         story += self._sec_intake(meta, st)
@@ -1046,6 +1062,37 @@ class ReportGenerator:
         )
 
         doc.multiBuild(story)
+
+    @staticmethod
+    def _build_summary_text(sr) -> str:
+        """Produce a one-paragraph executive summary from a ScoringResult."""
+        findings = sr.top_findings(5)
+        if not findings:
+            return (
+                "No significant threat indicators were identified during analysis. "
+                "The sample appears clean based on available evidence; manual review "
+                "is still recommended for high-value targets."
+            )
+        joined = "; ".join(findings)
+        if sr.verdict == "MALICIOUS":
+            return (
+                f"The sample is assessed as MALICIOUS with a threat score of "
+                f"{sr.total_score}/10.0 ({sr.confidence} confidence). "
+                f"Key findings: {joined}. "
+                "Immediate containment and environment-wide IOC hunting is advised."
+            )
+        if sr.verdict == "HIGH RISK":
+            return (
+                f"The sample exhibits high-risk characteristics (score {sr.total_score}/10.0, "
+                f"{sr.confidence} confidence). Key findings: {joined}. "
+                "Escalate for analyst review and consider quarantine pending investigation."
+            )
+        return (
+            f"The sample raised {len(findings)} indicator(s) of suspicious behaviour "
+            f"(score {sr.total_score}/10.0, {sr.confidence} confidence). "
+            f"Findings: {joined}. "
+            "Further investigation and contextual review are recommended."
+        )
 
     # ══════════════════════════════════════════════════════════════════
     # PAGE 1 — Title
@@ -1288,6 +1335,176 @@ class ReportGenerator:
         )
         elems.append(tbl)
         elems.append(Spacer(1, 0.4 * cm))
+        elems.append(PageBreak())
+        return elems
+
+    # ══════════════════════════════════════════════════════════════════
+    # THREAT SCORECARD
+    # ══════════════════════════════════════════════════════════════════
+    def _sec_scoring(self, scoring_results: dict, st: dict) -> list:
+        """
+        Render a per-target threat scorecard section.
+        For each ScoringResult:
+          • A visual score gauge (10-cell progress bar table)
+          • A category breakdown table (name, score, max, bar, findings)
+          • A findings bullet list
+        """
+        from reportlab.lib import colors as rl_colors
+
+        elems: list = []
+        elems.append(Paragraph("Threat Scoring", st["H1"]))
+        elems.append(Paragraph(
+            "Each analysed executable is scored across six evidence categories. "
+            "Scores are normalised to 0.0\u201310.0. "
+            "Verdict thresholds: CLEAN \u2264 2.9 \u2022 SUSPICIOUS 3.0\u20134.9 "
+            "\u2022 HIGH RISK 5.0\u20137.4 \u2022 MALICIOUS \u2265 7.5.",
+            st["IntroText"],
+        ))
+
+        for target, sr in scoring_results.items():
+            elems.append(Paragraph(f"Target: {_safe(target)}", st["H2"]))
+            elems.append(Spacer(1, 0.15 * cm))
+
+            # ── Verdict / score header panel ──────────────────────────────
+            v_hex    = sr.verdict_color_hex
+            v_bg_hex = sr.verdict_bg_hex
+            try:
+                v_color  = rl_colors.HexColor(v_hex)
+                v_bg     = rl_colors.HexColor(v_bg_hex)
+            except Exception:
+                v_color, v_bg = C_NAVY, C_ROW_B
+
+            verdict_style = ParagraphStyle(
+                f"VS_{target}", fontName="Helvetica-Bold", fontSize=18,
+                textColor=v_color, alignment=TA_CENTER, leading=24,
+            )
+            score_style = ParagraphStyle(
+                f"SS_{target}", fontName="Helvetica-Bold", fontSize=12,
+                textColor=C_NAVY, alignment=TA_CENTER, leading=18,
+            )
+            conf_style = ParagraphStyle(
+                f"CS_{target}", fontName="Helvetica", fontSize=8,
+                textColor=C_MUTED, alignment=TA_CENTER, leading=12,
+            )
+            header_data = [[
+                [Paragraph(sr.verdict, verdict_style)],
+                [
+                    Paragraph(f"{sr.total_score:.1f} / 10.0", score_style),
+                    Paragraph(f"Confidence: {sr.confidence}", conf_style),
+                ],
+            ]]
+            header_tbl = Table(
+                header_data,
+                colWidths=[CONTENT_W * 0.55, CONTENT_W * 0.45],
+            )
+            header_tbl.setStyle(TableStyle([
+                ("BACKGROUND",    (0, 0), (0, 0), v_bg),
+                ("BACKGROUND",    (1, 0), (1, 0), C_ROW_B),
+                ("BOX",           (0, 0), (-1, -1), 1.5, v_color),
+                ("LINEBEFORE",    (1, 0), (1, 0), 1.5, v_color),
+                ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING",    (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+            ]))
+            elems.append(header_tbl)
+            elems.append(Spacer(1, 0.25 * cm))
+
+            # ── 10-cell score gauge bar ───────────────────────────────────
+            gauge_cells = 10
+            filled      = int(round(sr.total_score))
+            gauge_row   = []
+            for i in range(gauge_cells):
+                if i < filled:
+                    cell_bg = v_color
+                    label   = Paragraph("\u25a0", ParagraphStyle(
+                        f"GB_{i}", fontName="Helvetica-Bold", fontSize=10,
+                        textColor=rl_colors.white, alignment=TA_CENTER,
+                    ))
+                else:
+                    cell_bg = C_ROW_B
+                    label   = Paragraph("\u25a1", ParagraphStyle(
+                        f"GE_{i}", fontName="Helvetica", fontSize=10,
+                        textColor=C_HINT, alignment=TA_CENTER,
+                    ))
+                gauge_row.append(label)
+
+            gauge_tbl = Table(
+                [gauge_row],
+                colWidths=[CONTENT_W / gauge_cells] * gauge_cells,
+                rowHeights=[0.55 * cm],
+            )
+            gauge_cmds = [
+                ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING",    (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+                ("BOX",           (0, 0), (-1, -1), 0.5, C_ROW_BORDER),
+                ("GRID",          (0, 0), (-1, -1), 0.3, C_ROW_BORDER),
+            ]
+            for i in range(gauge_cells):
+                cell_bg = v_color if i < filled else C_ROW_B
+                gauge_cmds.append(("BACKGROUND", (i, 0), (i, 0), cell_bg))
+            gauge_tbl.setStyle(TableStyle(gauge_cmds))
+            elems.append(gauge_tbl)
+            elems.append(Spacer(1, 0.25 * cm))
+
+            # ── Category breakdown table ──────────────────────────────────
+            elems.append(Paragraph("Score Breakdown by Category", st["H3"]))
+            elems.append(Spacer(1, 0.1 * cm))
+
+            if sr.categories:
+                cat_rows = []
+                for cat in sr.categories:
+                    bar_cells   = 10
+                    filled_cat  = int(round(cat.normalised))
+                    bar_str = ("\u25a0" * filled_cat) + ("\u25a1" * (bar_cells - filled_cat))
+                    findings_str = "; ".join(cat.findings[:3]) if cat.findings else "None"
+                    cat_rows.append([
+                        _safe(cat.name),
+                        f"{cat.score:.1f}/{cat.max_score:.0f}",
+                        bar_str,
+                        _safe(findings_str),
+                    ])
+
+                cat_tbl = _data_table(
+                    ["Category", "Score", "Gauge (0–10)", "Key Findings"],
+                    cat_rows,
+                    [0.22, 0.10, 0.18, 0.50],
+                    st,
+                    mono_cols=[1, 2],
+                )
+                elems.append(cat_tbl)
+            else:
+                elems.append(Paragraph("No category data available.", st["Body"]))
+
+            # ── Full findings bullet list ─────────────────────────────────
+            all_findings = sr.top_findings(20)
+            if all_findings:
+                elems.append(Spacer(1, 0.2 * cm))
+                elems.append(Paragraph("All Findings", st["H3"]))
+                elems.append(Spacer(1, 0.05 * cm))
+                for finding in all_findings:
+                    txt = _safe(finding)
+                    upper = txt.upper()
+                    if any(k in upper for k in (
+                        "INJECT", "RANSOM", "HOLLOW", "ESCALAT",
+                        "SHADOW COPY", "TERMINATE", "UAC BYPASS",
+                    )):
+                        sty = st["Alert"]
+                    elif any(k in upper for k in (
+                        "NETWORK", "HTTP", "DNS", "RWE", "YARA", "PERSIST",
+                        "SERVICE", "SCHEDULED",
+                    )):
+                        sty = st["Warning"]
+                    else:
+                        sty = st["BodySmall"]
+                    elems.append(Paragraph(f"\u2022  {txt}", sty))
+
+            elems.append(Spacer(1, 0.4 * cm))
+
         elems.append(PageBreak())
         return elems
 

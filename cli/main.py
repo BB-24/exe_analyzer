@@ -67,14 +67,28 @@ class CLIRunner:
     HEADER = "=" * 60
     PHASE  = "-" * 60
 
+    # ANSI colour codes (graceful fallback when terminal doesn't support them)
+    _ANSI = {
+        "MALICIOUS":  "\033[1;31m",   # bold red
+        "HIGH RISK":  "\033[1;33m",   # bold yellow
+        "SUSPICIOUS": "\033[1;33m",   # bold yellow
+        "CLEAN":      "\033[1;32m",   # bold green
+        "RESET":      "\033[0m",
+        "BOLD":       "\033[1m",
+        "DIM":        "\033[2m",
+        "CYAN":       "\033[36m",
+    }
+
     def __init__(self, quiet: bool = False):
-        self.quiet  = quiet
-        self._done  = threading.Event()
-        self._status = "Unknown"
+        self.quiet       = quiet
+        self._done       = threading.Event()
+        self._status     = "Unknown"
+        self._scores: list = []
 
         pub.subscribe(self._on_log,          "gui.log")
         pub.subscribe(self._on_table_update, "gui.update_table")
         pub.subscribe(self._on_complete,     "analysis.complete")
+        pub.subscribe(self._on_score,        "scoring.result")
 
     # ------------------------------------------------------------------
     # PubSub handlers
@@ -82,7 +96,7 @@ class CLIRunner:
 
     def _on_log(self, msg: str):
         if self.quiet:
-            if any(kw in msg for kw in ("---", "===", "[CRITICAL", "[!]")):
+            if any(kw in msg for kw in ("---", "===", "[CRITICAL", "[!]", "[SCORE]")):
                 print(msg)
         else:
             print(msg)
@@ -96,6 +110,10 @@ class CLIRunner:
                     print(f"    [{module}] {k}: {v}")
         else:
             print(f"    [{module}] {data}")
+
+    def _on_score(self, result):
+        """Accumulate scoring results for display in the final summary banner."""
+        self._scores.append(result)
 
     def _on_complete(self, status: str):
         self._status = status
@@ -168,6 +186,7 @@ class CLIRunner:
         self._done.wait(timeout=600)
 
         print(self.PHASE)
+        self._print_score_banner()
         if self._status == "Success":
             print("[+] Analysis complete — reports saved to:",
                   config.get("system", {}).get("reports_dir", "./workspace/reports"))
@@ -176,6 +195,54 @@ class CLIRunner:
         print(self.HEADER)
 
         return 0 if self._status == "Success" else 1
+
+    # ------------------------------------------------------------------
+    # Score banner
+    # ------------------------------------------------------------------
+
+    def _print_score_banner(self):
+        """Print a formatted threat-score summary table to stdout."""
+        if not self._scores:
+            return
+
+        A = self._ANSI
+        W = 60
+
+        print(f"\n{A['BOLD']}{'─' * W}{A['RESET']}")
+        print(f"{A['BOLD']}  THREAT SCORING RESULTS{A['RESET']}")
+        print(f"{A['BOLD']}{'─' * W}{A['RESET']}")
+
+        for sr in self._scores:
+            colour = A.get(sr.verdict, A["BOLD"])
+            reset  = A["RESET"]
+            bold   = A["BOLD"]
+            dim    = A["DIM"]
+            cyan   = A["CYAN"]
+
+            # Gauge bar (20 chars wide)
+            filled   = int(round(sr.total_score * 2))   # 0–20 chars
+            gauge    = ("\u2588" * filled) + ("\u2591" * (20 - filled))
+            conf_tag = f"[{sr.confidence} confidence]"
+
+            print(f"\n  {bold}Target :{reset} {sr.target}")
+            print(f"  {bold}Verdict:{reset} {colour}{sr.verdict}{reset}  "
+                  f"{cyan}{sr.total_score:.1f}/10.0{reset}  {dim}{conf_tag}{reset}")
+            print(f"  Score  : {colour}{gauge}{reset}")
+
+            if sr.categories:
+                print(f"  {dim}{'Category':<24} {'Score':>8}  Bar{reset}")
+                for cat in sr.categories:
+                    bar_filled = int(round(cat.normalised))
+                    bar = "\u2588" * bar_filled + "\u2591" * (10 - bar_filled)
+                    print(f"    {cat.name:<24} {cat.score:>4.1f}/{cat.max_score:<4.0f}  {bar}")
+
+            top = sr.top_findings(3)
+            if top:
+                print(f"  {dim}Top findings:{reset}")
+                for f in top:
+                    print(f"    {dim}\u2022{reset} {f}")
+
+        print(f"\n{A['BOLD']}{'─' * W}{A['RESET']}\n")
 
 
 def run_cli(args=None):
