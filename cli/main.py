@@ -157,16 +157,18 @@ class CLIRunner:
         pipeline.config_path = config_path
         pipeline.config      = config
 
-        from core.intake  import IntakeModule
-        from core.package import PackageModule
-        from core.static  import StaticModule
-        from core.report  import ReportGenerator
-        from core.dynamic import DynamicController
+        from core.intake   import IntakeModule
+        from core.package  import PackageModule
+        from core.static   import StaticModule
+        from core.report   import ReportGenerator
+        from core.dynamic  import DynamicController
+        from core.scoring  import MARSScorer
 
         pipeline.intake_module  = IntakeModule(config)
         pipeline.package_module = PackageModule(config)
         pipeline.static_module  = StaticModule(config)
         pipeline.reporter       = ReportGenerator(config)
+        pipeline.scorer         = MARSScorer()
 
         try:
             pipeline.dynamic_module = DynamicController(config_path)

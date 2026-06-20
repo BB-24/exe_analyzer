@@ -6,8 +6,8 @@ Pages
   2   Table of Contents — auto-built via two-pass multiBuild;
                           dot leaders + right-aligned page numbers
   3   Executive Summary — Verdict, severity score, one-paragraph summary
-  4   IoC Summary — consolidated copy-pasteable indicators of compromise
-  5   MITRE ATT&CK — observed behaviours mapped to tactic/technique IDs
+  4   Threat Scoring    — per-target scorecard with gauge bars
+  5   IoC Summary       — consolidated copy-pasteable indicators of compromise
   6+  Section 1 — File Intake Summary
       Section 2 — Package & Archive Unpacking
       Section 3 — Deep Static Analysis
@@ -151,59 +151,6 @@ CATEGORY_LABELS: dict[str, str] = {
     "Hardware":    "Hardware / System Stress(FR-DYN-07)",
     "System":      "System & Agent Events",
 }
-
-# ═══════════════════════════════════════════════════════════════════════════
-# MITRE ATT&CK LOOKUP
-# Maps suspicious API names / YARA rule patterns → (Technique ID, Name, Tactic)
-# ═══════════════════════════════════════════════════════════════════════════
-_MITRE_API_MAP: list[tuple[str, str, str, str]] = [
-    # keyword_pattern, technique_id, technique_name, tactic
-    ("VirtualAlloc",         "T1055",     "Process Injection",                       "Defense Evasion"),
-    ("VirtualAllocEx",       "T1055",     "Process Injection",                       "Defense Evasion"),
-    ("WriteProcessMemory",   "T1055",     "Process Injection",                       "Defense Evasion"),
-    ("NtWriteVirtualMemory", "T1055",     "Process Injection",                       "Defense Evasion"),
-    ("CreateRemoteThread",   "T1055.003", "Thread Execution Hijacking",              "Defense Evasion"),
-    ("SetThreadContext",     "T1055.003", "Thread Execution Hijacking",              "Defense Evasion"),
-    ("RegSetValueEx",        "T1547.001", "Registry Run Keys / Startup Folder",      "Persistence"),
-    ("RegCreateKey",         "T1547.001", "Registry Run Keys / Startup Folder",      "Persistence"),
-    ("InternetOpen",         "T1071.001", "Web Protocols",                           "Command & Control"),
-    ("InternetOpenUrl",      "T1071.001", "Web Protocols",                           "Command & Control"),
-    ("HttpSendRequest",      "T1071.001", "Web Protocols",                           "Command & Control"),
-    ("WinHttpOpen",          "T1071.001", "Web Protocols",                           "Command & Control"),
-    ("WSAStartup",           "T1095",     "Non-Application Layer Protocol",          "Command & Control"),
-    ("socket",               "T1095",     "Non-Application Layer Protocol",          "Command & Control"),
-    ("GetProcAddress",       "T1027",     "Obfuscated Files or Information",         "Defense Evasion"),
-    ("LoadLibrary",          "T1027",     "Obfuscated Files or Information",         "Defense Evasion"),
-    ("CryptEncrypt",         "T1486",     "Data Encrypted for Impact",               "Impact"),
-    ("CryptGenKey",          "T1486",     "Data Encrypted for Impact",               "Impact"),
-    ("SetWindowsHookEx",     "T1056.001", "Keylogging",                              "Collection"),
-    ("FindFirstFile",        "T1083",     "File and Directory Discovery",            "Discovery"),
-    ("FindNextFile",         "T1083",     "File and Directory Discovery",            "Discovery"),
-    ("NetShareEnum",         "T1135",     "Network Share Discovery",                 "Discovery"),
-    ("IsDebuggerPresent",    "T1622",     "Debugger Evasion",                        "Defense Evasion"),
-    ("CheckRemoteDebugger",  "T1622",     "Debugger Evasion",                        "Defense Evasion"),
-    ("OpenSCManager",        "T1543.003", "Windows Service",                         "Persistence"),
-    ("CreateService",        "T1543.003", "Windows Service",                         "Persistence"),
-    ("ShellExecute",         "T1059",     "Command and Scripting Interpreter",       "Execution"),
-    ("WinExec",              "T1059",     "Command and Scripting Interpreter",       "Execution"),
-    ("CreateProcess",        "T1059",     "Command and Scripting Interpreter",       "Execution"),
-    ("NtUnmapViewOfSection", "T1055.012", "Process Hollowing",                       "Defense Evasion"),
-    ("ZwUnmapViewOfSection", "T1055.012", "Process Hollowing",                       "Defense Evasion"),
-    ("AdjustTokenPrivileges","T1134",     "Access Token Manipulation",               "Privilege Escalation"),
-    ("LookupPrivilegeValue", "T1134",     "Access Token Manipulation",               "Privilege Escalation"),
-    ("DeleteFile",           "T1070.004", "File Deletion",                           "Defense Evasion"),
-    ("MoveFileEx",           "T1070.004", "File Deletion",                           "Defense Evasion"),
-    ("SHGetSpecialFolder",   "T1082",     "System Information Discovery",            "Discovery"),
-    ("GetComputerName",      "T1082",     "System Information Discovery",            "Discovery"),
-    ("GetSystemInfo",        "T1082",     "System Information Discovery",            "Discovery"),
-    ("UuidCreate",           "T1082",     "System Information Discovery",            "Discovery"),
-    ("INJECT",               "T1055",     "Process Injection",                       "Defense Evasion"),
-    ("HOLLOW",               "T1055.012", "Process Hollowing",                       "Defense Evasion"),
-    ("RANSOM",               "T1486",     "Data Encrypted for Impact",               "Impact"),
-    ("REG_RUN_KEY",          "T1547.001", "Registry Run Keys / Startup Folder",      "Persistence"),
-    ("FILE_DROP",            "T1105",     "Ingress Tool Transfer",                   "Command & Control"),
-    ("PROCESS_SPAWN",        "T1059",     "Command and Scripting Interpreter",       "Execution"),
-]
 
 # ═══════════════════════════════════════════════════════════════════════════
 # COLOUR PALETTE  (light / high-contrast theme)
@@ -905,45 +852,6 @@ def _extract_iocs(data: dict) -> dict:
     return iocs
 
 
-def _collect_mitre_hits(data: dict) -> list[tuple[str, str, str, str]]:
-    """
-    Scan all static + dynamic data for API names and event strings that match
-    the MITRE lookup table.  Returns deduplicated list of
-    (technique_id, technique_name, tactic, observed_evidence).
-    """
-    hits: dict[str, tuple] = {}   # technique_id → (name, tactic, evidence)
-
-    def _check(text: str):
-        for pattern, tid, tname, tactic in _MITRE_API_MAP:
-            if pattern.upper() in text.upper():
-                if tid not in hits:
-                    evidence = text[:60].strip()
-                    hits[tid] = (tname, tactic, evidence)
-
-    static = data.get("Static_Analysis_Results", {})
-    for _tgt, result in static.items():
-        if not isinstance(result, dict):
-            continue
-        for cat, cat_data in result.items():
-            if isinstance(cat_data, dict):
-                for v in cat_data.values():
-                    _check(str(v))
-            elif isinstance(cat_data, list):
-                for item in cat_data:
-                    _check(str(item))
-
-    dyn = data.get("Dynamic_Analysis_Results", {})
-    for _tgt, telemetry in dyn.items():
-        if not isinstance(telemetry, dict):
-            continue
-        for cat, events in telemetry.items():
-            if isinstance(events, list):
-                for ev in events:
-                    _check(str(ev))
-
-    return [(tid, info[0], info[1], info[2]) for tid, info in sorted(hits.items())]
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # REPORT GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1041,8 +949,7 @@ class ReportGenerator:
             verdict, score, summary = _compute_verdict(data)
             primary_sr = None
 
-        iocs       = _extract_iocs(data)
-        mitre_hits = _collect_mitre_hits(data)
+        iocs = _extract_iocs(data)
 
         story: list = []
         story += self._page_title(st)
@@ -1051,7 +958,6 @@ class ReportGenerator:
         if scoring_results:
             story += self._sec_scoring(scoring_results, st)
         story += self._sec_ioc_summary(iocs, st)
-        story += self._sec_mitre_attack(mitre_hits, st)
         story += self._sec_intake(meta, st)
         story += self._sec_packages(data.get("Package_Extraction") or [], st)
         story += self._sec_static(data.get("Static_Analysis_Results", {}), st)
@@ -1289,52 +1195,6 @@ class ReportGenerator:
             ))
             elems.append(Spacer(1, 0.25 * cm))
 
-        elems.append(PageBreak())
-        return elems
-
-    # ══════════════════════════════════════════════════════════════════
-    # MITRE ATT&CK Mapping
-    # ══════════════════════════════════════════════════════════════════
-    def _sec_mitre_attack(
-        self,
-        mitre_hits: list[tuple[str, str, str, str]],
-        st: dict,
-    ) -> list:
-        elems: list = []
-        elems.append(Paragraph("MITRE ATT&amp;CK Mapping", st["H1"]))
-        elems.append(Paragraph(
-            "Observed behaviours cross-referenced with the MITRE ATT&CK framework. "
-            "Each row maps a detected indicator to its technique ID, name, and tactic phase.",
-            st["IntroText"],
-        ))
-
-        if not mitre_hits:
-            elems.append(Paragraph(
-                "No MITRE ATT&CK techniques could be mapped from the available evidence.",
-                st["Body"],
-            ))
-            elems.append(Spacer(1, 0.4 * cm))
-            return elems
-
-        rows = []
-        for tid, tname, tactic, evidence in mitre_hits:
-            rows.append([
-                _safe(tid),
-                _safe(tname),
-                _safe(tactic),
-                _safe(evidence),
-            ])
-
-        tbl = _data_table(
-            ["Technique ID", "Technique Name", "Tactic", "Observed Evidence"],
-            rows,
-            [0.13, 0.27, 0.20, 0.40],
-            st,
-            flag_col=2,
-            mono_cols=[0],
-        )
-        elems.append(tbl)
-        elems.append(Spacer(1, 0.4 * cm))
         elems.append(PageBreak())
         return elems
 
