@@ -10,7 +10,7 @@ from pubsub import pub
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Flowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Flowable, Image, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
@@ -729,6 +729,15 @@ class ReportGenerator:
 
         # 4. Process Initialization
         story.append(Paragraph("Process Initialization", self.h2_style))
+        
+        # Embed WMI Process Tree Visual Graph
+        img_path = telemetry.get("analysis_metadata", {}).get("process_tree_image_path", "")
+        if img_path and os.path.exists(img_path):
+            story.append(KeepTogether([
+                Image(img_path, width=460, height=276),
+                Spacer(1, 10)
+            ]))
+            
         has_proc = False
         if "process_tree_generation" in telemetry:
             tree_root = telemetry.get("process_tree_generation", {}).get("tree", {})
@@ -778,6 +787,15 @@ class ReportGenerator:
                     ('PADDING', (0, 0), (-1, -1), 6),
                 ]))
                 story.append(t_res)
+                
+                # Render CPU utilization profile graph if present
+                cpu_img = peak.get("cpu_graph_image_path", "")
+                if cpu_img and os.path.exists(cpu_img):
+                    story.append(Spacer(1, 10))
+                    story.append(KeepTogether([
+                        Image(cpu_img, width=460, height=184),
+                        Spacer(1, 5)
+                    ]))
         
         if not has_res:
             story.append(Paragraph("N/A - Resource utility monitoring not performed", self.normal))

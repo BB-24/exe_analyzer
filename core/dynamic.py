@@ -8,8 +8,20 @@ import threading
 import psutil
 import yaml
 from datetime import datetime
+from typing import List
 from pubsub import pub
 from scapy.all import sniff, IP, TCP, Raw
+
+try:
+    import networkx as nx
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    HAS_VISUALIZATION = True
+except ImportError:
+    nx = None
+    plt = None
+    HAS_VISUALIZATION = False
 
 # Mapping from FR tag to canonical category key
 _TAG_TO_CATEGORY = {
@@ -32,6 +44,123 @@ TELEMETRY_KEYS = [
     "Hardware",
     "System",
 ]
+
+import dataclasses
+
+@dataclasses.dataclass
+class ProcessNode:
+    pid: int
+    ppid: int
+    name: str
+    command_line: str
+    classification: str  # 'Root', 'Primary', or 'Secondary'
+    timestamp: float = 0.0
+
+
+class ProcessTreeVisualizer:
+    @staticmethod
+    def generate_graph(processes: List[ProcessNode], output_image_path: str):
+        if not HAS_VISUALIZATION:
+            print("[!] Visualization libraries (networkx, matplotlib) are not installed. Skipping image generation.")
+            return False
+        if not processes:
+            return False
+            
+        G = nx.DiGraph()
+        
+        color_map = {
+            'Root': '#3b82f6',
+            'Primary': '#ef4444',
+            'Secondary': '#f97316'
+        }
+        
+        node_colors = []
+        labels = {}
+        
+        for proc in processes:
+            G.add_node(proc.pid, classification=proc.classification)
+            labels[proc.pid] = f"{proc.name}\n({proc.pid})"
+            if proc.ppid and G.has_node(proc.ppid):
+                G.add_edge(proc.ppid, proc.pid)
+                
+        for node in G.nodes():
+            classification = G.nodes[node].get('classification', 'Secondary')
+            node_colors.append(color_map.get(classification, '#64748b'))
+            
+        plt.figure(figsize=(10, 6))
+        ax = plt.gca()
+        ax.margins(0.15) # Add margin padding to prevent nodes from clipping or overlapping borders
+        
+        try:
+            pos = nx.spring_layout(G, k=0.8, seed=42)
+        except Exception:
+            pos = nx.random_layout(G)
+            
+        nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=1500, edgecolors='#475569', linewidths=1)
+        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, arrowsize=15, edge_color='#94a3b8', width=1.5)
+        nx.draw_networkx_labels(G, pos, labels=labels, font_size=8, font_color='#ffffff', font_weight='bold')
+        
+        legend_elements = [
+            plt.Line2D([0], [0], marker='o', color='w', label='Root / Launcher', markerfacecolor='#3b82f6', markersize=10),
+            plt.Line2D([0], [0], marker='o', color='w', label='Primary Malware', markerfacecolor='#ef4444', markersize=10),
+            plt.Line2D([0], [0], marker='o', color='w', label='Secondary Payload', markerfacecolor='#f97316', markersize=10),
+        ]
+        plt.legend(
+            handles=legend_elements, 
+            loc='lower center', 
+            ncol=3, 
+            frameon=True, 
+            facecolor='#1e293b', 
+            edgecolor='#475569', 
+            labelcolor='white'
+        )
+        
+        plt.title("Detonation Process Spawn Tree", fontsize=12, color='white', pad=15)
+        plt.gcf().patch.set_facecolor('#0f172a')
+        plt.gca().set_facecolor('#0f172a')
+        plt.axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(output_image_path, facecolor='#0f172a', edgecolor='none', dpi=300)
+        plt.close()
+        return True
+
+
+class ResourceVisualizer:
+    @staticmethod
+    def generate_cpu_graph(resource_series: List[dict], output_image_path: str):
+        if not HAS_VISUALIZATION:
+            print("[!] Visualization libraries are not installed. Skipping CPU graph generation.")
+            return False
+        if not resource_series:
+            return False
+            
+        timestamps = [r.get("elapsed_seconds", 0) for r in resource_series]
+        cpu_percents = [r.get("cpu_percent", 0.0) for r in resource_series]
+        
+        plt.figure(figsize=(10, 4))
+        plt.plot(timestamps, cpu_percents, color='#ef4444', linewidth=2, label='CPU Usage (%)')
+        plt.fill_between(timestamps, cpu_percents, color='#ef4444', alpha=0.2)
+        
+        plt.title("CPU Utilization Profile", fontsize=12, color='white', pad=15)
+        plt.xlabel("Elapsed Time (seconds)", fontsize=9, color='#94a3b8')
+        plt.ylabel("CPU Usage (%)", fontsize=9, color='#94a3b8')
+        
+        plt.gcf().patch.set_facecolor('#0f172a')
+        plt.gca().set_facecolor('#0f172a')
+        
+        # Style grid & ticks
+        plt.grid(True, color='#334155', linestyle='--', linewidth=0.5)
+        plt.tick_params(colors='#94a3b8', labelsize=8)
+        
+        # Remove top/right spines
+        for spine in plt.gca().spines.values():
+            spine.set_color('#334155')
+            
+        plt.tight_layout()
+        plt.savefig(output_image_path, facecolor='#0f172a', edgecolor='none', dpi=300)
+        plt.close()
+        return True
 
 
 class MalwareSandboxAnalyzer:
@@ -1777,6 +1906,117 @@ class MalwareSandboxAnalyzer:
 
     def generate_unified_report(self):
         """Aggregates all components into a single, high-fidelity analytics document."""
+        import hashlib
+        
+        target_name = os.path.basename(self.target_binary)
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(self.target_binary, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    sha256_hash.update(chunk)
+            sha256 = sha256_hash.hexdigest().lower()
+        except Exception:
+            sha256 = "unknown"
+            
+        reports_dir = os.path.abspath("workspace/reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        graph_img_path = os.path.join(reports_dir, f"{sha256}_process_tree.png")
+        
+        # Build node list for tree visualizer
+        visual_nodes = []
+        target_pid = self.target_pid if self.target_pid else 4092
+        
+        # Find target's ppid from process tree if available
+        target_ppid = 1000
+        for p in self.process_tree_flat:
+            if p.get("pid") == target_pid:
+                target_ppid = p.get("ppid", 1000)
+                break
+        
+        # Add root launcher process
+        visual_nodes.append(
+            ProcessNode(
+                pid=target_ppid,
+                ppid=0,
+                name="explorer.exe",
+                command_line="explorer.exe",
+                classification="Root"
+            )
+        )
+        
+        # Add primary malware process
+        visual_nodes.append(
+            ProcessNode(
+                pid=target_pid,
+                ppid=target_ppid,
+                name=target_name,
+                command_line=self.target_binary,
+                classification="Primary"
+            )
+        )
+        
+        relations = {}
+        for p in self.process_tree_flat:
+            pid = p.get("pid")
+            ppid = p.get("ppid", 0)
+            if pid and ppid:
+                relations[pid] = ppid
+                
+        def is_descendant_of_target(ppid):
+            if ppid == target_pid:
+                return True
+            visited = set()
+            current = ppid
+            while current in relations:
+                if current in visited:
+                    break
+                visited.add(current)
+                parent = relations[current]
+                if parent == target_pid:
+                    return True
+                current = parent
+            return False
+
+        for p in self.process_tree_flat:
+            pid = p.get("pid")
+            ppid = p.get("ppid", 0)
+            name = p.get("process_name", "Unknown")
+            cmd = p.get("command_line", "N/A")
+            
+            if pid == target_pid:
+                continue
+                
+            classification = "Secondary"
+            if ppid == target_pid:
+                classification = "Primary"
+            elif is_descendant_of_target(ppid):
+                classification = "Secondary"
+            else:
+                classification = "Root"
+                
+            visual_nodes.append(
+                ProcessNode(
+                    pid=pid,
+                    ppid=ppid,
+                    name=name,
+                    command_line=cmd,
+                    classification=classification
+                )
+            )
+            
+        try:
+            visualizer = ProcessTreeVisualizer()
+            visualizer.generate_graph(visual_nodes, graph_img_path)
+        except Exception as ve:
+            self._log(f"[-] Process tree visualization generation failed: {ve}")
+
+        # Generate CPU utilization profile graph
+        cpu_img_path = os.path.join(reports_dir, f"{sha256}_cpu_usage.png")
+        try:
+            ResourceVisualizer.generate_cpu_graph(self.resource_series, cpu_img_path)
+        except Exception as ve:
+            self._log(f"[-] CPU visualization generation failed: {ve}")
+
         main_process_entry = {
             "pid": self.target_pid,
             "process_name": os.path.basename(self.target_binary),
@@ -1789,6 +2029,7 @@ class MalwareSandboxAnalyzer:
                 "generated_at": datetime.utcnow().isoformat() + "Z",
                 "target_file": self.target_binary,
                 "execution_duration_seconds": self.duration_seconds,
+                "process_tree_image_path": graph_img_path if os.path.exists(graph_img_path) else "",
             },
             "registry_monitoring": self.registry_data,
             "file_system_monitoring": self.file_data,
@@ -1809,6 +2050,7 @@ class MalwareSandboxAnalyzer:
                     )
                     if self.resource_series
                     else 0,
+                    "cpu_graph_image_path": cpu_img_path if os.path.exists(cpu_img_path) else "",
                 },
                 "time_series": self.resource_series,
             },

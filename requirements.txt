@@ -18,6 +18,8 @@ reportlab          # PDF document layout and generation engine
 scapy              # Deep packet inspection & sniffer network engine
 watchdog           # Filesystem event monitoring library
 psutil             # Process and resource monitoring library
+networkx           # Process tree graph building library
+matplotlib         # head-less visual graph rendering library
 
 # ------------------------------------------------------------------------------
 # 2. Guest Sandbox Agent Dependencies (VM B — Detonation Environment)

@@ -83,11 +83,37 @@ class StaticModule:
         timestamp = pe.FILE_HEADER.TimeDateStamp
         compile_time = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
         
+        entry_point_rva = pe.OPTIONAL_HEADER.AddressOfEntryPoint
+        entry_point_section = None
+        try:
+            entry_point_section = pe.get_section_by_rva(entry_point_rva)
+        except Exception:
+            pass
+            
+        if not entry_point_section:
+            for section in pe.sections:
+                start = section.VirtualAddress
+                end = start + max(section.Misc_VirtualSize, section.SizeOfRawData)
+                if start <= entry_point_rva < end:
+                    entry_point_section = section
+                    break
+                    
+        if entry_point_section:
+            sec_name = entry_point_section.Name.decode('utf-8', errors='ignore').strip('\x00')
+            sec_va_start = entry_point_section.VirtualAddress
+            sec_va_end = sec_va_start + entry_point_section.Misc_VirtualSize
+            sec_raw_start = entry_point_section.PointerToRawData
+            sec_raw_end = sec_raw_start + entry_point_section.SizeOfRawData
+            entry_point_section_info = f"{sec_name} (Virtual: {hex(sec_va_start)}-{hex(sec_va_end)}, Raw: {hex(sec_raw_start)}-{hex(sec_raw_end)})"
+        else:
+            entry_point_section_info = "Unknown / Not inside any section"
+        
         results["PE Headers"] = {
             "Machine Architecture": hex(pe.FILE_HEADER.Machine),
             "Compile Timestamp": compile_time,
             "DOS Header Offset (e_lfanew)": hex(pe.DOS_HEADER.e_lfanew),
             "Address of Entry Point": hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint),
+            "Entry Point Section Location": entry_point_section_info,
             "Image Base": hex(pe.OPTIONAL_HEADER.ImageBase),
             "Number of Sections": pe.FILE_HEADER.NumberOfSections
         }
