@@ -1414,6 +1414,7 @@ class MalwareSandboxAnalyzer:
                 fakenet_path = self.config.get("sandbox", {}).get("fakenet_path", "C:\\Tools\\Fakenet\\FakeNet.exe")
                 # Deduce directory from executable path
                 fakenet_dir = os.path.dirname(fakenet_path)
+                fakenet_run = "C:\\Users\\Administrator\\Desktop\\Fakenet_run.bat"
                 self._log(f"[*] Starting FakeNet inside guest VM sandbox ({fakenet_path})...")
                 try:
                     subprocess.run(
@@ -1428,9 +1429,7 @@ class MalwareSandboxAnalyzer:
                             "runProgramInGuest",
                             vmx_path,
                             "-noWait",
-                            "cmd.exe",
-                            "/c",
-                            f"cd /d \"{fakenet_dir}\" && \"{fakenet_path}\""
+                            fakenet_run
                         ],
                         check=True,
                         capture_output=True,
@@ -1702,7 +1701,7 @@ class MalwareSandboxAnalyzer:
                 # Allow file system handles to fully release
                 time.sleep(3)
 
-                # A. Copy the latest FakeNet PCAP file on guest VM B to C:\Tools\Fakenet\latest.pcap
+                # A. Copy the latest FakeNet PCAP file on guest VM B to C:\latest.pcap
                 self._log("[*] Packaging latest FakeNet PCAP inside guest VM...")
                 subprocess.run(
                     [
@@ -1717,7 +1716,7 @@ class MalwareSandboxAnalyzer:
                         vmx_path,
                         "powershell.exe",
                         "-Command",
-                        "Get-ChildItem -Path 'C:\\Tools\\Fakenet\\packets_*.pcap' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Copy-Item -Destination 'C:\\Tools\\Fakenet\\latest.pcap' -Force"
+                        "Get-ChildItem -Path 'C:\\Tools\\Fakenet\\packets_*.pcap', 'C:\\Users\\Administrator\\packets_*.pcap', 'C:\\Users\\Administrator\\Desktop\\packets_*.pcap', 'C:\\packets_*.pcap' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Copy-Item -Destination 'C:\\latest.pcap' -Force"
                     ],
                     capture_output=True,
                     timeout=20,
@@ -1753,7 +1752,7 @@ class MalwareSandboxAnalyzer:
                         guest_pass,
                         "copyFileFromGuestToHost",
                         vmx_path,
-                        "C:\\Tools\\Fakenet\\latest.pcap",
+                        "C:\\latest.pcap",
                         host_pcap_path
                     ],
                     capture_output=True,

@@ -1,0 +1,518 @@
+{
+    "Analysis_Summary": {
+        "Analysis ID": "MARS-spwan.exe-2F8FE0",
+        "Original File Name": "spwan.exe",
+        "File Size (Bytes)": 146944,
+        "Extension": ".exe",
+        "Creation Timestamp": "2026-07-02 19:10:47",
+        "Magic Bytes (Hex)": "4D5A9000",
+        "MIME/Format Guess": "application/x-msdownload (PE Executable)",
+        "MD5": "c35aa79d35916c0db05c64231450ea57",
+        "SHA1": "f055e8090eaf64a0e2a8427fe87a48632eacb9af",
+        "SHA256": "a3e081074d7c80ee814a79578cf93e40e1f715a63c963ec831244a18254d431b",
+        "SHA512": "b93c5c1ce3cdcb9336e627cbd9ea14ef426a7d8abe2711448f19463b496c46a277f3ba6384db901a7e4319cb83e9eb793c1353bc0e1e07a02165932978e62875"
+    },
+    "Package_Extraction": [],
+    "Static_Analysis_Results": {
+        "spwan.exe": {
+            "PE Headers": {
+                "Machine Architecture": "0x8664",
+                "Compile Timestamp": "2026-06-30 21:48:53",
+                "DOS Header Offset (e_lfanew)": "0x100",
+                "Address of Entry Point": "0x1b50",
+                "Entry Point Section Location": ".text (Virtual: 0x1000-0x16fb0, Raw: 0x400-0x16400)",
+                "Image Base": "0x140000000",
+                "Number of Sections": 6
+            },
+            "Mitigations": {
+                "DEP / NX Bit": "Enabled",
+                "ASLR": "Enabled",
+                "CFG (Control Flow Guard)": "Disabled",
+                "RFG (Return Flow Guard)": "Disabled",
+                "SafeSEH": "Disabled",
+                "Stack Canaries (/GS)": "Enabled",
+                "Hardware Protection (CET/Shadow Stack)": "Disabled",
+                "Force Integrity": "Disabled",
+                "Isolation / AppContainer": "Disabled"
+            },
+            "Sections": {
+                "Section: .text": "Perms: R-E | Entropy: 6.49 ",
+                "Section: .rdata": "Perms: R-- | Entropy: 4.99 ",
+                "Section: .data": "Perms: RW- | Entropy: 2.96 ",
+                "Section: .pdata": "Perms: R-- | Entropy: 5.11 ",
+                "Section: .fptable": "Perms: RW- | Entropy: 0.00 ",
+                "Section: .reloc": "Perms: R-- | Entropy: 4.93 "
+            },
+            "Suspicious Imports": {
+                "Tracked APIs Found": 3,
+                "APIs": "InternetOpenA, CreateProcessA, IsDebuggerPresent"
+            },
+            "Manifest Data": {
+                "Manifest Status": "Not Found",
+                "Requested Execution Level": "Unknown"
+            },
+            "Strings Analytics": {
+                "IPv4": 0,
+                "IPv6": 0,
+                "URL": 1,
+                "Registry": 0,
+                "Email": 0,
+                "Password-Like": 0
+            },
+            "Extracted Artifacts": {
+                "IPv4": [],
+                "IPv6": [],
+                "URL": [
+                    "http://www.example.com"
+                ],
+                "Registry": [],
+                "Email": [],
+                "Password-Like": []
+            },
+            "YARA Signatures": {
+                "Hits": 1,
+                "Matched Rules": "Dropper_Embedded_Executable"
+            }
+        }
+    },
+    "Dynamic_Analysis_Results": {
+        "spwan.exe": {
+            "Filesystem": [
+                "[23:09:36] [FILE_CREATED] [FILE_DROP] Created file: C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                "[23:09:36] [FILE_MODIFIED] Modified file: C:\\Windows\\System32\\drivers\\etc\\hosts"
+            ],
+            "Registry": [
+                "[23:09:36] [REG_DELETE] Deleted value: HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware",
+                "[23:09:36] [REG_WRITE] [REG_RUN_KEY] Added value: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BackdoorX -> C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe (Type: REG_SZ)"
+            ],
+            "Persistence": [
+                "[23:09:36] [PERSISTENCE] Category: registry_run | Mechanism: HKCU Run Key Modification | Target: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BackdoorX | Command: C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe | Method: Registry Callback Driver Mapping"
+            ],
+            "Processes": [
+                "[23:09:36] [PROCESS_ROOT] Root PID: 4092",
+                "[23:09:36] [PROCESS_SPAWN] PID: 5120 | PPID: 4092 | Name: dropped_payload.exe | Cmd: C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                "[23:09:36] [PROCESS_SPAWN] PID: 5124 | PPID: 5120 | Name: cmd.exe | Cmd: cmd.exe /c \"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand SafeSimulationCommand\"",
+                "[23:09:36] [PROCESS_SPAWN] PID: 6100 | PPID: 5124 | Name: powershell.exe | Cmd: powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand SafeSimulationCommand"
+            ],
+            "Memory": [
+                "[23:09:36] [MEMORY_INJECT] Loaded DLL: vault_payload.dll | Path: C:\\Users\\Administrator\\AppData\\Local\\Temp\\vault_payload.dll | Signature: UNSIGNED | SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 | Risk: Loaded from temp directory, Unsigned binary execution"
+            ],
+            "Network": [],
+            "Hardware": [
+                "[23:09:36] [SYS_STRESS] CPU: 0.0% | RAM: 1445888 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 0s",
+                "[23:09:36] [SYS_STRESS] CPU: 15.4% | RAM: 2203648 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 1s",
+                "[23:09:36] [SYS_STRESS] CPU: 0.79% | RAM: 2204229 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 2s",
+                "[23:09:36] [SYS_STRESS] CPU: 2.32% | RAM: 2211121 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 3s",
+                "[23:09:36] [SYS_STRESS] CPU: 0.48% | RAM: 2202020 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 4s",
+                "[23:09:36] [SYS_STRESS] CPU: 2.07% | RAM: 2203445 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 5s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.41% | RAM: 2209634 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 6s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.62% | RAM: 2189585 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 7s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.19% | RAM: 2193148 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 8s",
+                "[23:09:36] [SYS_STRESS] CPU: 0.99% | RAM: 2219343 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 9s",
+                "[23:09:36] [SYS_STRESS] CPU: 2.21% | RAM: 2195456 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 10s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.3% | RAM: 2200529 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 11s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.61% | RAM: 2206702 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 12s",
+                "[23:09:36] [SYS_STRESS] CPU: 2.19% | RAM: 2190217 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 13s",
+                "[23:09:36] [SYS_STRESS] CPU: 0.39% | RAM: 2208041 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 14s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.89% | RAM: 2196883 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 15s",
+                "[23:09:36] [SYS_STRESS] CPU: 2.26% | RAM: 2208585 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 16s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.33% | RAM: 2207920 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 17s",
+                "[23:09:36] [SYS_STRESS] CPU: 1.98% | RAM: 2205621 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 18s",
+                "[23:09:36] [SYS_STRESS] CPU: 2.37% | RAM: 2187702 bytes | Disk Write B/s: 0 | Net Send B/s: 0 | Elapsed: 19s"
+            ],
+            "System": [
+                "[23:09:36] [SYSTEM_INFO] Generated At: 2026-07-02T17:39:36.619142Z | Duration: 20s"
+            ],
+            "analysis_metadata": {
+                "generated_at": "2026-07-02T17:39:36.619142Z",
+                "target_file": "C:\\BHAVYA\\Internship\\exe_analyzer\\spwan.exe",
+                "execution_duration_seconds": 20,
+                "process_tree_image_path": "C:\\BHAVYA\\Internship\\exe_analyzer\\workspace\\reports\\a3e081074d7c80ee814a79578cf93e40e1f715a63c963ec831244a18254d431b_process_tree.png"
+            },
+            "registry_monitoring": {
+                "total_changes": 2,
+                "keys_deleted": [],
+                "values_deleted": [
+                    "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware"
+                ],
+                "values_added": [
+                    {
+                        "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BackdoorX",
+                        "data": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                        "type": "REG_SZ"
+                    }
+                ],
+                "values_modified": []
+            },
+            "file_system_monitoring": {
+                "total_changes": 2,
+                "files_created": [
+                    "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe"
+                ],
+                "files_modified": [
+                    "C:\\Windows\\System32\\drivers\\etc\\hosts"
+                ],
+                "files_deleted": [],
+                "files_renamed": []
+            },
+            "persistence_analysis": {
+                "total_persistence_entries": 1,
+                "high_confidence_persistence": [
+                    {
+                        "category": "registry_run",
+                        "mechanism": "HKCU Run Key Modification",
+                        "target_path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BackdoorX",
+                        "command": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                        "detection_method": "Registry Callback Driver Mapping"
+                    }
+                ],
+                "low_confidence_noise": [],
+                "details": [
+                    {
+                        "category": "registry_run",
+                        "mechanism": "HKCU Run Key Modification",
+                        "target_path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BackdoorX",
+                        "command": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                        "detection_method": "Registry Callback Driver Mapping"
+                    }
+                ]
+            },
+            "process_tree_generation": {
+                "tree": {
+                    "pid": 4092,
+                    "process_name": "spwan.exe",
+                    "command_line": "C:\\BHAVYA\\Internship\\exe_analyzer\\spwan.exe",
+                    "children": [
+                        {
+                            "pid": 5120,
+                            "ppid": 4092,
+                            "process_name": "dropped_payload.exe",
+                            "command_line": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                            "timestamp": "2026-07-02T17:39:35.440106Z",
+                            "children": [
+                                {
+                                    "pid": 5124,
+                                    "ppid": 5120,
+                                    "process_name": "cmd.exe",
+                                    "command_line": "cmd.exe /c \"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand SafeSimulationCommand\"",
+                                    "timestamp": "2026-07-02T17:39:35.440106Z",
+                                    "children": [
+                                        {
+                                            "pid": 6100,
+                                            "ppid": 5124,
+                                            "process_name": "powershell.exe",
+                                            "command_line": "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand SafeSimulationCommand",
+                                            "timestamp": "2026-07-02T17:39:35.440106Z",
+                                            "children": []
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            "resource_utility_monitoring": {
+                "summary": {
+                    "peak_cpu_percent": 15.4,
+                    "peak_memory_bytes": 2219343,
+                    "cpu_graph_image_path": "C:\\BHAVYA\\Internship\\exe_analyzer\\workspace\\reports\\a3e081074d7c80ee814a79578cf93e40e1f715a63c963ec831244a18254d431b_cpu_usage.png"
+                },
+                "time_series": [
+                    {
+                        "elapsed_seconds": 0,
+                        "cpu_percent": 0.0,
+                        "memory_bytes": 1445888,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 1,
+                        "cpu_percent": 15.4,
+                        "memory_bytes": 2203648,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 2,
+                        "cpu_percent": 0.79,
+                        "memory_bytes": 2204229,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 3,
+                        "cpu_percent": 2.32,
+                        "memory_bytes": 2211121,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 4,
+                        "cpu_percent": 0.48,
+                        "memory_bytes": 2202020,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 5,
+                        "cpu_percent": 2.07,
+                        "memory_bytes": 2203445,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 6,
+                        "cpu_percent": 1.41,
+                        "memory_bytes": 2209634,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 7,
+                        "cpu_percent": 1.62,
+                        "memory_bytes": 2189585,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 8,
+                        "cpu_percent": 1.19,
+                        "memory_bytes": 2193148,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 9,
+                        "cpu_percent": 0.99,
+                        "memory_bytes": 2219343,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 10,
+                        "cpu_percent": 2.21,
+                        "memory_bytes": 2195456,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 11,
+                        "cpu_percent": 1.3,
+                        "memory_bytes": 2200529,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 12,
+                        "cpu_percent": 1.61,
+                        "memory_bytes": 2206702,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 13,
+                        "cpu_percent": 2.19,
+                        "memory_bytes": 2190217,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 14,
+                        "cpu_percent": 0.39,
+                        "memory_bytes": 2208041,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 15,
+                        "cpu_percent": 1.89,
+                        "memory_bytes": 2196883,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 16,
+                        "cpu_percent": 2.26,
+                        "memory_bytes": 2208585,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 17,
+                        "cpu_percent": 1.33,
+                        "memory_bytes": 2207920,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 18,
+                        "cpu_percent": 1.98,
+                        "memory_bytes": 2205621,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    },
+                    {
+                        "elapsed_seconds": 19,
+                        "cpu_percent": 2.37,
+                        "memory_bytes": 2187702,
+                        "disk_write_bytes_sec": 0,
+                        "network_send_bytes_sec": 0
+                    }
+                ]
+            },
+            "network_communication_analysis": {
+                "summary": {
+                    "total_connections": 0
+                },
+                "details": []
+            },
+            "dll_signature_monitoring": {
+                "unsigned_dlls_count": 1,
+                "details": [
+                    {
+                        "timestamp": "2026-07-02T17:39:35.440106Z",
+                        "loading_process_pid": 4092,
+                        "dll_name": "vault_payload.dll",
+                        "dll_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\vault_payload.dll",
+                        "signature_status": "UNSIGNED",
+                        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                        "risk_indicators": [
+                            "Loaded from temp directory",
+                            "Unsigned binary execution"
+                        ]
+                    }
+                ]
+            },
+            "agent_error_log": {
+                "line_count": 0,
+                "captured": false,
+                "content": ""
+            }
+        }
+    },
+    "Dynamic_Summary": {
+        "spwan.exe": {
+            "Filesystem": {
+                "count": 2,
+                "notable": [
+                    "[23:09:36] [FILE_CREATED] [FILE_DROP] Created file: C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe"
+                ]
+            },
+            "Registry": {
+                "count": 2,
+                "notable": [
+                    "[23:09:36] [REG_WRITE] [REG_RUN_KEY] Added value: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BackdoorX -> C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe (Type: REG_SZ)"
+                ]
+            },
+            "Persistence": {
+                "count": 1,
+                "notable": []
+            },
+            "Processes": {
+                "count": 4,
+                "notable": [
+                    "[23:09:36] [PROCESS_ROOT] Root PID: 4092",
+                    "[23:09:36] [PROCESS_SPAWN] PID: 5120 | PPID: 4092 | Name: dropped_payload.exe | Cmd: C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe",
+                    "[23:09:36] [PROCESS_SPAWN] PID: 5124 | PPID: 5120 | Name: cmd.exe | Cmd: cmd.exe /c \"powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand SafeSimulationCommand\"",
+                    "[23:09:36] [PROCESS_SPAWN] PID: 6100 | PPID: 5124 | Name: powershell.exe | Cmd: powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand SafeSimulationCommand"
+                ]
+            },
+            "Memory": {
+                "count": 1,
+                "notable": [
+                    "[23:09:36] [MEMORY_INJECT] Loaded DLL: vault_payload.dll | Path: C:\\Users\\Administrator\\AppData\\Local\\Temp\\vault_payload.dll | Signature: UNSIGNED | SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 | Risk: Loaded from temp directory, Unsigned binary execution"
+                ]
+            },
+            "Network": {
+                "count": 0,
+                "notable": []
+            },
+            "Hardware": {
+                "count": 20,
+                "notable": []
+            },
+            "System": {
+                "count": 1,
+                "notable": []
+            }
+        }
+    },
+    "Scoring_Results": {
+        "spwan.exe": {
+            "target": "spwan.exe",
+            "verdict": "SUSPICIOUS",
+            "total_score": 3.52,
+            "confidence": "MEDIUM",
+            "timestamp": "2026-07-02T17:39:36Z",
+            "categories": [
+                {
+                    "name": "YARA Signatures",
+                    "score": 5.0,
+                    "max_score": 20.0,
+                    "weight_pct": 20.0,
+                    "normalised": 2.5,
+                    "findings": [
+                        "YARA rule matched: Dropper_Embedded_Executable"
+                    ]
+                },
+                {
+                    "name": "Suspicious Imports",
+                    "score": 2.0,
+                    "max_score": 18.0,
+                    "weight_pct": 18.0,
+                    "normalised": 1.11,
+                    "findings": [
+                        "IsDebuggerPresent \u2014 anti-analysis"
+                    ]
+                },
+                {
+                    "name": "Section Analysis",
+                    "score": 0.0,
+                    "max_score": 14.0,
+                    "weight_pct": 14.0,
+                    "normalised": 0.0,
+                    "findings": []
+                },
+                {
+                    "name": "Mitigations",
+                    "score": 3.0,
+                    "max_score": 8.0,
+                    "weight_pct": 8.0,
+                    "normalised": 3.75,
+                    "findings": [
+                        "CFG (Control Flow Guard): disabled (mitigation absent)",
+                        "RFG (Return Flow Guard): disabled (mitigation absent)",
+                        "SafeSEH: disabled (mitigation absent)",
+                        "Hardware Protection (CET/Shadow Stack): disabled (mitigation absent)",
+                        "Force Integrity: disabled (mitigation absent)"
+                    ]
+                },
+                {
+                    "name": "String Artefacts",
+                    "score": 1.0,
+                    "max_score": 8.0,
+                    "weight_pct": 8.0,
+                    "normalised": 1.25,
+                    "findings": [
+                        "1 embedded URL(s): http://www.example.com"
+                    ]
+                },
+                {
+                    "name": "Dynamic Behaviour",
+                    "score": 27.0,
+                    "max_score": 40.0,
+                    "weight_pct": 32.0,
+                    "normalised": 6.75,
+                    "findings": [
+                        "Executable payload dropped to disk",
+                        "Registry persistence (Run key) established",
+                        "Living-off-the-land binary abuse (LOLBIN)",
+                        "Process injection technique observed",
+                        "Suspicious executable memory allocation"
+                    ]
+                }
+            ]
+        }
+    }
+}

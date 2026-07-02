@@ -665,6 +665,7 @@ class ReportGenerator:
                 else:
                     fs_modified_cnt += 1
 
+        story.append(PageBreak())
         # 2. Folder Changes Made During Installation
         story.append(Paragraph("Folder Changes Made During Installation", self.h2_style))
         story.append(Paragraph(
@@ -700,6 +701,7 @@ class ReportGenerator:
             story.append(Paragraph("N/A - No file system changes captured", self.normal))
         story.append(Spacer(1, 10))
 
+        story.append(PageBreak())
         # 3. Persistence Check During the Execution
         story.append(Paragraph("Persistence Check During the Execution", self.h2_style))
         
@@ -828,6 +830,7 @@ class ReportGenerator:
                 story.append(Paragraph("N/A - No persistence mechanisms established", self.normal))
             story.append(Spacer(1, 10))
 
+        story.append(PageBreak())
         # 4. Process Initialization
         story.append(Paragraph("Process Initialization", self.h2_style))
         
@@ -869,6 +872,7 @@ class ReportGenerator:
             story.append(Paragraph("N/A - No process initialization recorded", self.normal))
         story.append(Spacer(1, 10))
 
+        story.append(PageBreak())
         # 7. Resource Utility
         story.append(Paragraph("Resource Utility", self.h2_style))
         has_res = False
@@ -902,6 +906,7 @@ class ReportGenerator:
             story.append(Paragraph("N/A - Resource utility monitoring not performed", self.normal))
         story.append(Spacer(1, 10))
 
+        story.append(PageBreak())
         # 8. Dropped / Loaded DLLs
         story.append(Paragraph("Dropped / Loaded DLLs", self.h2_style))
         dll_info = telemetry.get("dll_signature_monitoring", {})
@@ -976,6 +981,69 @@ class ReportGenerator:
             story.append(hash_table)
         else:
             story.append(Paragraph("No DLLs were dropped or loaded during execution.", self.normal))
+
+        # 9. Network Communication Analysis
+        story.append(PageBreak())
+        story.append(Paragraph("Network Communication Analysis", self.h2_style))
+        net_info = telemetry.get("network_communication_analysis", {})
+        net_details = net_info.get("details", [])
+        total_connections = net_info.get("summary", {}).get("total_connections", 0)
+        
+        story.append(Paragraph(
+            f"Total connections/requests captured: <b>{total_connections}</b>",
+            self.normal
+        ))
+        story.append(Spacer(1, 8))
+        
+        if net_details:
+            net_table_data = [[
+                Paragraph("<b>Protocol</b>", self.normal_bold),
+                Paragraph("<b>Port</b>", self.normal_bold),
+                Paragraph("<b>Direction</b>", self.normal_bold),
+                Paragraph("<b>Activity / Domain / Command</b>", self.normal_bold),
+            ]]
+            
+            for conn in net_details:
+                proto = conn.get("protocol", "N/A")
+                port = str(conn.get("dst_port", "N/A"))
+                direct = conn.get("direction", "OUTBOUND")
+                action = conn.get("scapy_action", "") or conn.get("domain", "") or "N/A"
+                
+                net_table_data.append([
+                    Paragraph(proto, self.normal),
+                    Paragraph(port, self.normal),
+                    Paragraph(direct, self.normal),
+                    Paragraph(action, self.code_style),
+                ])
+                
+            net_table = Table(net_table_data, colWidths=[64, 54, 74, 312])
+            net_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
+                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
+                ('PADDING', (0, 0), (-1, -1), 6),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+            story.append(net_table)
+        else:
+            net_events = telemetry.get("Network", [])
+            if net_events:
+                net_table_data = [[
+                    Paragraph("<b>Activity Log</b>", self.normal_bold)
+                ]]
+                for ev in net_events:
+                    net_table_data.append([
+                        Paragraph(str(ev), self.code_style)
+                    ])
+                net_table = Table(net_table_data, colWidths=[504])
+                net_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ]))
+                story.append(net_table)
+            else:
+                story.append(Paragraph("No network activity captured during execution.", self.normal))
 
         return story
 

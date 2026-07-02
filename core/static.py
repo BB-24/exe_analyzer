@@ -71,7 +71,12 @@ class StaticModule:
             pub.sendMessage("gui.log", msg=f"[!] {os.path.basename(filepath)} is not a valid PE file. Skipping Static Analysis.")
             return None
         except Exception as e:
-            pub.sendMessage("gui.log", msg=f"[!] Critical Error in Static Module: {str(e)}")
+            err_msg = str(e)
+            if "22" in err_msg or "permission" in err_msg.lower() or "access" in err_msg.lower():
+                pub.sendMessage("gui.log", msg=f"[!] Critical Error in Static Module: Unable to access file (likely AV quarantine or block): {err_msg}")
+                pub.sendMessage("gui.log", msg="[!] TIP: Add the quarantine folder (Temp\\mars_workspace) to your Antivirus/Windows Defender exclusion list.")
+            else:
+                pub.sendMessage("gui.log", msg=f"[!] Critical Error in Static Module: {err_msg}")
             return None
 
     # ==========================================
