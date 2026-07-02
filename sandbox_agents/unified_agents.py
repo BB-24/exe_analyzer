@@ -1,0 +1,1260 @@
+import os
+import sys
+import time
+import threading
+import subprocess
+import csv
+import json
+import uuid
+import struct
+import serial
+import psutil
+import winreg
+import ctypes
+import re
+import pythoncom
+import wmi
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+# Redirect stdout and stderr to a file on desktop since we run directly without shell redirection
+try:
+    import getpass
+    username = getpass.getuser()
+    log_path = f"C:\\Users\\{username}\\Desktop\\agent_err.log"
+    sys.stdout = open(log_path, "w", buffering=1)
+    sys.stderr = sys.stdout
+except Exception:
+    pass
+
+# ==========================================
+# CONFIGURATION & GLOBALS
+# ==========================================
+SERIAL_PORT = 'COM1'
+TARGET_EXE = r"C:\Users\Administrator\Desktop\sample.exe"
+PROCMON_PATH = r"C:\Tools\procmon.exe"
+PML_LOG = r"C:\Analysis\trace.pml"
+CSV_LOG = r"C:\Analysis\trace.csv"
+ANALYSIS_TIMEOUT = 60
+
+# Global State Management
+analysis_active = True
+tracked_pids = set()
+tracking_lock = threading.Lock()
+
+ser = None
+for attempt in range(15):
+    try:
+        ser = serial.Serial(SERIAL_PORT, baudrate=115200, timeout=1)
+        print(f"[+] Serial port {SERIAL_PORT} connected successfully.")
+        break
+    except Exception as e:
+        print(f"[-] Serial connection attempt {attempt+1} failed: {e}")
+        time.sleep(1)
+
+def stream_log(fr_tag, event_type, detail):
+    """Streams structured telemetry directly to the Host VM."""
+    timestamp = time.strftime("%H:%M:%S")
+    if isinstance(detail, dict):
+        import json
+        # Embed default timestamp/tag/event_type if not present
+        if "timestamp" not in detail:
+            detail["timestamp"] = timestamp
+        if "tag" not in detail:
+            detail["tag"] = fr_tag
+        if "event_type" not in detail:
+            detail["event_type"] = event_type
+        clean_detail = json.dumps(detail)
+    else:
+        clean_detail = str(detail).replace('\n', ' ').replace('\r', '')
+    log_entry = f"[{timestamp}] [{fr_tag}] [{event_type}] {clean_detail}\r\n"
+    
+    if ser:
+        try:
+            ser.write(log_entry.encode('utf-8', errors='ignore'))
+            ser.flush()
+        except Exception as e:
+            print(f"[-] Serial write error: {e}")
+    print(log_entry.strip())
+
+# ==========================================
+# MODULE: FR-DYN-07 (Hardware/System Profiler)
+# Target APIs: GetSystemInfo, GlobalMemoryStatusEx,
+#   GetDiskFreeSpaceEx, Sleep, NtDelayExecution,
+#   GetAdaptersInfo, EnumDeviceDrivers
+# ==========================================
+def monitor_hardware():
+    """FR-DYN-07: System environment queries, anti-analysis checks, and resource monitoring.
+    Captures: CPU cores, RAM, MAC address, disk size, VM drivers, Sleep evasion timing."""
+    global analysis_active
+    last_net = psutil.net_io_counters()
+    env_profiled = False
+    
+    while analysis_active:
+        time.sleep(2)
+        try:
+            # === ONE-TIME ENVIRONMENT PROFILE (first iteration only) ===
+            if not env_profiled:
+                env_profiled = True
+                _profile_environment()
+            
+            sys_cpu = psutil.cpu_percent()
+            sys_mem = psutil.virtual_memory()
+            
+            current_net = psutil.net_io_counters()
+            net_sent = (current_net.bytes_sent - last_net.bytes_sent) / 2
+            last_net = current_net
+            
+            # CPU core evasion check (malware queries GetSystemInfo)
+            cores = psutil.cpu_count()
+            if cores and cores < 2:
+                stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                    "pid": os.getpid(),
+                    "process_name": "unified_agents.py",
+                    "check_type": "HARDWARE_CHECK",
+                    "indicator": "Low CPU Core Count",
+                    "detail": f"System has {cores} CPU cores (sandbox evasion threshold: <2)",
+                    "is_notable": True,
+                    "verdict": "SUSPICIOUS"
+                })
+            
+            # Physical RAM evasion check (malware queries GlobalMemoryStatusEx)
+            total_ram_gb = sys_mem.total / (1024**3)
+            if total_ram_gb < 2.0:
+                stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                    "pid": os.getpid(),
+                    "process_name": "unified_agents.py",
+                    "check_type": "HARDWARE_CHECK",
+                    "indicator": "Low Physical RAM",
+                    "detail": f"System has {total_ram_gb:.2f} GB RAM (sandbox evasion threshold: <2GB)",
+                    "is_notable": True,
+                    "verdict": "SUSPICIOUS"
+                })
+                
+            stream_log("FR-DYN-07", "SYS_STRESS", {
+                "cpu_percent": sys_cpu,
+                "ram_percent": sys_mem.percent,
+                "net_out_kb_sec": round(net_sent / 1024, 2)
+            })
+        except Exception:
+            pass
+
+def _profile_environment():
+    """One-time environment fingerprint: MAC, disk, VM drivers, Sleep timing."""
+    # 1. MAC Address VM Vendor Detection (GetAdaptersInfo)
+    try:
+        mac = ':'.join(('%012x' % uuid.getnode())[i:i+2] for i in range(0, 12, 2))
+        vm_mac_prefixes = [
+            '00:0c:29', '00:50:56', '00:05:69',  # VMware
+            '08:00:27', '0a:00:27',               # VirtualBox
+            '00:1c:42',                            # Parallels
+            '00:16:3e',                            # Xen
+            '52:54:00',                            # QEMU/KVM
+        ]
+        mac_lower = mac[:8].lower()
+        for prefix in vm_mac_prefixes:
+            if mac_lower == prefix:
+                stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                    "pid": os.getpid(), "process_name": "environment_profiler",
+                    "check_type": "VIRTUALIZATION_CHECK",
+                    "indicator": "VM MAC Address Vendor",
+                    "detail": f"MAC {mac} matches VM vendor prefix {prefix}",
+                    "is_notable": True, "verdict": "INFO"
+                })
+                break
+    except Exception:
+        pass
+    
+    # 2. Disk Size Check (GetDiskFreeSpaceEx — malware expects >60GB)
+    try:
+        disk = psutil.disk_usage('C:\\')
+        disk_gb = disk.total / (1024**3)
+        if disk_gb < 60:
+            stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                "pid": os.getpid(), "process_name": "environment_profiler",
+                "check_type": "HARDWARE_CHECK",
+                "indicator": "Small Disk Size",
+                "detail": f"C:\\ total {disk_gb:.1f} GB (sandbox threshold: <60 GB)",
+                "is_notable": True, "verdict": "SUSPICIOUS"
+            })
+    except Exception:
+        pass
+    
+    # 3. VM Process / Driver Enumeration (EnumDeviceDrivers, CreateToolhelp32Snapshot)
+    vm_indicators = {
+        'vmtoolsd.exe': 'VMware Tools Daemon', 'vmwaretray.exe': 'VMware Tray',
+        'vboxservice.exe': 'VirtualBox Guest Additions', 'vboxtray.exe': 'VirtualBox Tray',
+        'xenservice.exe': 'Xen Guest Agent', 'qemu-ga.exe': 'QEMU Guest Agent',
+        'vmusrvc.exe': 'Hyper-V Integration', 'vgauthservice.exe': 'VMware Guest Auth',
+    }
+    try:
+        for p in psutil.process_iter(['name', 'pid']):
+            try:
+                pname = (p.info['name'] or '').lower()
+                if pname in vm_indicators:
+                    stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                        "pid": p.info['pid'], "process_name": p.info['name'],
+                        "check_type": "VIRTUALIZATION_CHECK",
+                        "indicator": f"VM Process: {vm_indicators[pname]}",
+                        "detail": f"Running process '{p.info['name']}' (PID {p.info['pid']}) is a VM indicator",
+                        "is_notable": True, "verdict": "INFO"
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception:
+        pass
+    
+    # 4. Sleep() / NtDelayExecution Evasion Baseline
+    try:
+        t0 = time.perf_counter()
+        time.sleep(1.0)
+        elapsed = time.perf_counter() - t0
+        if elapsed < 0.8:  # Timer acceleration detected
+            stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                "pid": os.getpid(), "process_name": "environment_profiler",
+                "check_type": "TIMING_CHECK",
+                "indicator": "Sleep Timer Acceleration",
+                "detail": f"Sleep(1000ms) returned in {elapsed*1000:.0f}ms (expected ~1000ms)",
+                "is_notable": True, "verdict": "SUSPICIOUS"
+            })
+    except Exception:
+        pass
+    
+    # 5. Screen Resolution Check (GetSystemMetrics — malware expects >=1024x768)
+    try:
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+        w = user32.GetSystemMetrics(0)  # SM_CXSCREEN
+        h = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+        if w < 1024 or h < 768:
+            stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                "pid": os.getpid(), "process_name": "environment_profiler",
+                "check_type": "HARDWARE_CHECK",
+                "indicator": "Low Screen Resolution",
+                "detail": f"Display resolution {w}x{h} (sandbox threshold: <1024x768)",
+                "is_notable": True, "verdict": "SUSPICIOUS"
+            })
+    except Exception:
+        pass
+
+# ==========================================
+# MODULE: FR-DYN-04 (Process Lifetime)
+# ==========================================
+def _is_ancestor_tracked(ppid, tracked):
+    current = ppid
+    visited = set()
+    while current and current not in visited:
+        visited.add(current)
+        if str(current) in tracked:
+            return True
+        try:
+            p = psutil.Process(current)
+            current = p.ppid()
+        except Exception:
+            break
+    return False
+
+
+def monitor_processes():
+    global analysis_active
+    pythoncom.CoInitialize()
+    c = wmi.WMI()
+    
+    watcher = c.watch_for(notification_type="Creation", wmi_class="Win32_Process", delay_secs=1)
+    
+    while analysis_active:
+        try:
+            new_proc = watcher(timeout_ms=1000)
+            if new_proc:
+                pid = int(new_proc.ProcessId)
+                ppid = int(new_proc.ParentProcessId)
+                
+                with tracking_lock:
+                    if str(ppid) in tracked_pids or _is_ancestor_tracked(ppid, tracked_pids):
+                        tracked_pids.add(str(pid))
+                        cmd = new_proc.CommandLine if new_proc.CommandLine else "N/A"
+                        
+                        # Living-off-the-Land (LotL) Abuse Detection
+                        # Target: CreateProcessA/W, ShellExecuteA/W, WinExec
+                        verdict = _classify_process_verdict(cmd, new_proc.Name)
+                            
+                        stream_log("FR-DYN-04", "PROCESS_SPAWN", {
+                            "pid": pid,
+                            "ppid": ppid,
+                            "process_name": new_proc.Name,
+                            "command_line": cmd,
+                            "verdict": verdict
+                        })
+        except wmi.x_wmi_timed_out:
+            continue
+        except Exception:
+            pass
+    pythoncom.CoUninitialize()
+
+# ==========================================
+# MODULE: FR-DYN-04 HELPER — LotL Classifier
+# Target APIs: CreateProcessA/W, ShellExecuteA/W,
+#   WinExec, CreateRemoteThread, NtCreateThreadEx
+# ==========================================
+# LOLBAS (Living Off The Land Binaries And Scripts) classification rules
+LOTL_RULES = [
+    # (binary_substr, suspicious_args, verdict, description)
+    ('powershell', ['bypass', 'hidden', 'encodedcommand', 'nop', 'noprofile', 'iex', 'invoke-expression', 'downloadstring', 'downloadfile', '-enc ', '-w hidden'], 'MALICIOUS', 'PowerShell abuse'),
+    ('cmd.exe', ['curl ', 'wget ', 'certutil', 'bitsadmin', 'powershell', '/c echo ', 'wscript', 'cscript'], 'SUSPICIOUS', 'CMD proxy execution'),
+    ('certutil', ['-urlcache', '-decode', '-decodehex', '-split'], 'MALICIOUS', 'Certutil LOLBin download/decode'),
+    ('vssadmin', ['delete', 'resize shadowstorage'], 'MALICIOUS', 'Volume Shadow Copy deletion (ransomware)'),
+    ('wmic', ['process call create', 'shadowcopy delete', '/node:', 'os get'], 'MALICIOUS', 'WMIC remote/local abuse'),
+    ('mshta', ['vbscript', 'javascript', 'http://', 'https://'], 'MALICIOUS', 'MSHTA script execution'),
+    ('regsvr32', ['/s /n /u /i:', 'scrobj.dll', 'http://', 'https://'], 'MALICIOUS', 'Regsvr32 Squiblydoo'),
+    ('rundll32', ['javascript', 'vbscript', 'shell32.dll', 'advpack.dll,launchinfsection'], 'SUSPICIOUS', 'Rundll32 proxy execution'),
+    ('bitsadmin', ['/transfer', '/create', '/addfile', 'http://', 'https://'], 'MALICIOUS', 'BITSAdmin download'),
+    ('cscript', ['http://', 'https://', '.vbs', '.js', '.wsf'], 'SUSPICIOUS', 'CScript execution'),
+    ('wscript', ['http://', 'https://', '.vbs', '.js', '.wsf'], 'SUSPICIOUS', 'WScript execution'),
+    ('msiexec', ['/q', '/i http', '/i https', '/quiet'], 'SUSPICIOUS', 'MSIExec remote install'),
+    ('schtasks', ['/create', '/change', '/run'], 'SUSPICIOUS', 'Scheduled Task manipulation'),
+    ('sc.exe', ['create', 'config', 'start'], 'SUSPICIOUS', 'Service Control manipulation'),
+    ('reg.exe', ['add', 'delete', 'export'], 'SUSPICIOUS', 'Registry CLI manipulation'),
+    ('net.exe', ['user ', 'localgroup', 'share ', 'use '], 'SUSPICIOUS', 'Net command recon/manipulation'),
+    ('bcdedit', ['/set', 'recoveryenabled no', 'bootstatuspolicy ignoreallfailures'], 'MALICIOUS', 'Boot config tampering (ransomware)'),
+    ('wbadmin', ['delete catalog', 'delete systemstatebackup'], 'MALICIOUS', 'Backup deletion (ransomware)'),
+    ('icacls', ['/grant', '/deny', '/reset'], 'SUSPICIOUS', 'Permission modification'),
+    ('attrib', ['+h', '+s', '-r'], 'SUSPICIOUS', 'File attribute hiding'),
+]
+
+def _classify_process_verdict(cmd, proc_name):
+    """Classifies a process spawn using LOLBAS rules."""
+    if not cmd:
+        return "CLEAN"
+    cmd_lower = cmd.lower()
+    name_lower = (proc_name or '').lower()
+    
+    for binary, args, verdict, _ in LOTL_RULES:
+        if binary in cmd_lower or binary in name_lower:
+            if any(arg.lower() in cmd_lower for arg in args):
+                return verdict
+    return "CLEAN"
+
+# ==========================================
+# MODULE: FR-DYN-03 (Persistence Tripwires)
+# Target APIs: RegSetValueExA/W, RegCreateKeyExA/W,
+#   ITaskService::RegisterTaskDefinition (COM),
+#   CreateServiceA/W, ChangeServiceConfigA/W,
+#   IWbemServices::ExecMethodAsync (WMI)
+# ==========================================
+class StartupHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if not event.is_directory:
+            stream_log("FR-DYN-03", "FILE_DROP", {
+                "category": "startup_file",
+                "mechanism": "Startup Folder File Drop",
+                "target_path": event.src_path,
+                "command": event.src_path,
+                "detection_method": "Startup Folder Directory Watcher",
+                "pid": os.getpid(),
+                "process_name": "unified_agents.py",
+                "verdict": "SUSPICIOUS"
+            })
+
+def monitor_persistence():
+    """FR-DYN-03: Monitors ASEPs — Run keys, Scheduled Tasks, Services, WMI consumers."""
+    global analysis_active
+    
+    # 1. Watchdog for Startup Folders
+    observer = Observer()
+    handler = StartupHandler()
+    watched_paths = [
+        os.environ.get('USERPROFILE', r'C:\Users\Administrator') + r'\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup',
+        r'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup',
+        r'C:\Windows\System32\Tasks'
+    ]
+    for p in watched_paths:
+        if os.path.exists(p):
+            observer.schedule(handler, path=p, recursive=False)
+    observer.start()
+
+    # 2. Baseline known registry Run values (HKCU + HKLM, Run + RunOnce)
+    run_key_paths = [
+        (winreg.HKEY_CURRENT_USER,  r"Software\Microsoft\Windows\CurrentVersion\Run",     "HKCU\\...\\Run"),
+        (winreg.HKEY_CURRENT_USER,  r"Software\Microsoft\Windows\CurrentVersion\RunOnce", "HKCU\\...\\RunOnce"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run",     "HKLM\\...\\Run"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\RunOnce", "HKLM\\...\\RunOnce"),
+    ]
+    known_reg_entries = set()  # (hive, subkey, name)
+    
+    # 3. Baseline known scheduled tasks
+    known_tasks = set()
+    try:
+        res = subprocess.run(['schtasks', '/query', '/fo', 'csv', '/nh'], capture_output=True, text=True, timeout=10)
+        for line in res.stdout.strip().splitlines():
+            parts = line.strip('"').split('","')
+            if parts:
+                known_tasks.add(parts[0].strip('"'))
+    except Exception:
+        pass
+    
+    # 4. Baseline known services
+    known_services = set()
+    try:
+        for svc in psutil.win_service_iter():
+            known_services.add(svc.name())
+    except Exception:
+        pass
+    
+    # === POLLING LOOP ===
+    while analysis_active:
+        time.sleep(3)
+        
+        # A. Poll Registry Run/RunOnce Keys (RegSetValueExW, RegCreateKeyExW)
+        for hive, subkey, label in run_key_paths:
+            try:
+                key = winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+                i = 0
+                while True:
+                    try:
+                        name, val, _ = winreg.EnumValue(key, i)
+                        entry_id = (hive, subkey, name)
+                        if entry_id not in known_reg_entries:
+                            known_reg_entries.add(entry_id)
+                            full_path = f"{label}\\{name}"
+                            stream_log("FR-DYN-03", "REG_RUN_KEY", {
+                                "category": "registry_run",
+                                "mechanism": f"{label.split(chr(92))[-1]} Key Modification",
+                                "target_path": full_path,
+                                "command": str(val),
+                                "detection_method": "Registry ASEP Polling",
+                                "pid": os.getpid(),
+                                "process_name": "unified_agents.py",
+                                "verdict": "SUSPICIOUS"
+                            })
+                        i += 1
+                    except OSError:
+                        break
+                winreg.CloseKey(key)
+            except Exception:
+                pass
+        
+        # B. Poll Scheduled Tasks (ITaskService / schtasks.exe)
+        try:
+            res = subprocess.run(['schtasks', '/query', '/fo', 'csv', '/nh'],
+                                 capture_output=True, text=True, timeout=10)
+            for line in res.stdout.strip().splitlines():
+                parts = line.strip('"').split('","')
+                if parts:
+                    task_name = parts[0].strip('"')
+                    if task_name and task_name not in known_tasks:
+                        known_tasks.add(task_name)
+                        stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+                            "category": "scheduled_task",
+                            "mechanism": "Scheduled Task Registration",
+                            "target_path": task_name,
+                            "command": f"schtasks entry: {line.strip()}",
+                            "detection_method": "Scheduled Task Delta Polling",
+                            "pid": os.getpid(),
+                            "process_name": "unified_agents.py",
+                            "verdict": "SUSPICIOUS"
+                        })
+        except Exception:
+            pass
+        
+        # C. Poll Windows Services (CreateServiceA/W)
+        try:
+            for svc in psutil.win_service_iter():
+                svc_name = svc.name()
+                if svc_name not in known_services:
+                    known_services.add(svc_name)
+                    try:
+                        info = svc.as_dict()
+                    except Exception:
+                        info = {}
+                    stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+                        "category": "service",
+                        "mechanism": "Windows Service Registration",
+                        "target_path": f"HKLM\\SYSTEM\\CurrentControlSet\\Services\\{svc_name}",
+                        "command": info.get('binpath', 'N/A'),
+                        "detection_method": "Service Delta Polling",
+                        "pid": os.getpid(),
+                        "process_name": "unified_agents.py",
+                        "verdict": "SUSPICIOUS"
+                    })
+        except Exception:
+            pass
+        
+        # D. Poll WMI Event Consumers (__EventConsumer subclass instances)
+        try:
+            pythoncom.CoInitialize()
+            c = wmi.WMI()
+            for consumer in c.query("SELECT * FROM __EventConsumer"):
+                consumer_name = getattr(consumer, 'Name', 'Unknown')
+                consumer_class = consumer.ole_object.GetObjectText_(0)[:200] if hasattr(consumer, 'ole_object') else str(type(consumer))
+                stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+                    "category": "wmi_event_consumer",
+                    "mechanism": "WMI Event Consumer Subscription",
+                    "target_path": f"WMI __EventConsumer: {consumer_name}",
+                    "command": consumer_class[:200],
+                    "detection_method": "WMI Event Consumer Query",
+                    "pid": os.getpid(),
+                    "process_name": "unified_agents.py",
+                    "verdict": "MALICIOUS"
+                })
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+    observer.stop()
+    observer.join()
+
+# ==========================================
+# MODULE: FR-DYN-05 (Memory Forensics)
+# ==========================================
+class MEMORY_BASIC_INFORMATION64(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_ulonglong),
+        ("AllocationBase", ctypes.c_ulonglong),
+        ("AllocationProtect", ctypes.c_ulong),
+        ("alignment1", ctypes.c_ulong),
+        ("RegionSize", ctypes.c_ulonglong),
+        ("State", ctypes.c_ulong),
+        ("Protect", ctypes.c_ulong),
+        ("Type", ctypes.c_ulong),
+        ("alignment2", ctypes.c_ulong),
+    ]
+
+# Common shellcode prologs (x86/x64) to detect injected code
+# Format: (pattern_bytes, description)
+SHELLCODE_SIGNATURES = [
+    (b'\xfc\xe8',       'x86 CLD + CALL (Metasploit common)'),
+    (b'\x55\x89\xe5',   'x86 PUSH EBP; MOV EBP,ESP (function prolog)'),
+    (b'\x48\x31\xc9',   'x64 XOR RCX,RCX (zeroing)'),
+    (b'\x48\x83\xec',   'x64 SUB RSP (stack alloc prolog)'),
+    (b'\x4d\x5a',       'MZ header (reflective PE in memory)'),
+    (b'\xcc\xcc\xcc',   'INT3 sled (debug/injection marker)'),
+    (b'\x31\xc0\x50',   'x86 XOR EAX,EAX; PUSH EAX (null-push shellcode)'),
+    (b'\xe8\x00\x00\x00\x00', 'x86 CALL $+5 (PIC position-independent code)'),
+]
+
+def scan_memory():
+    """FR-DYN-05: Scans surviving processes for injected code,
+    PAGE_EXECUTE_READWRITE allocations, and shellcode prologs.
+    Target APIs traced: VirtualAllocEx, NtWriteVirtualMemory,
+    NtMapViewOfSection, VirtualProtectEx, NtUnmapViewOfSection."""
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    
+    with tracking_lock:
+        target_pids = list(tracked_pids)
+        
+    for pid in target_pids:
+        if not psutil.pid_exists(int(pid)):
+            continue
+            
+        try:
+            # PROCESS_QUERY_INFORMATION (0x0400) | PROCESS_VM_READ (0x0010)
+            handle = kernel32.OpenProcess(0x0400 | 0x0010, False, int(pid))
+            if not handle:
+                continue
+                
+            try:
+                proc_name = psutil.Process(int(pid)).name()
+            except Exception:
+                proc_name = "unknown"
+                
+            stream_log("FR-DYN-05", "MEM_SCAN", f"Scanning volatile memory for PID {pid} ({proc_name})")
+            
+            mbi = MEMORY_BASIC_INFORMATION64()
+            address = 0
+            rwx_count = 0
+            while address < 0x7FFFFFFFFFFF:
+                res = kernel32.VirtualQueryEx(handle, ctypes.c_void_p(address), ctypes.byref(mbi), ctypes.sizeof(mbi))
+                if res == 0:
+                    break
+                # State 0x1000 = MEM_COMMIT
+                if mbi.State == 0x1000:
+                    # 0x40 = PAGE_EXECUTE_READWRITE, 0x80 = PAGE_EXECUTE_WRITECOPY
+                    if mbi.Protect in (0x40, 0x80):
+                        rwx_count += 1
+                        prot_name = "PAGE_EXECUTE_READWRITE" if mbi.Protect == 0x40 else "PAGE_EXECUTE_WRITECOPY"
+                        
+                        # Read first 64 bytes for shellcode prolog detection
+                        shellcode_hit = ""
+                        hex_dump = ""
+                        try:
+                            buf = ctypes.create_string_buffer(64)
+                            bytes_read = ctypes.c_size_t(0)
+                            if kernel32.ReadProcessMemory(handle, ctypes.c_void_p(mbi.BaseAddress),
+                                                          buf, 64, ctypes.byref(bytes_read)):
+                                raw = buf.raw[:bytes_read.value]
+                                hex_dump = raw[:32].hex()
+                                for sig_bytes, sig_desc in SHELLCODE_SIGNATURES:
+                                    if raw[:len(sig_bytes)] == sig_bytes:
+                                        shellcode_hit = sig_desc
+                                        break
+                        except Exception:
+                            pass
+                        
+                        verdict = "CRITICAL" if shellcode_hit else "MALICIOUS"
+                        stream_log("FR-DYN-05", "MEMORY_INJECT", {
+                            "pid": os.getpid(),
+                            "process_name": "unified_agents.py",
+                            "target_pid": int(pid),
+                            "target_process_name": proc_name,
+                            "operation": "VirtualQueryEx + ReadProcessMemory",
+                            "base_address": hex(mbi.BaseAddress),
+                            "size_bytes": mbi.RegionSize,
+                            "protection": prot_name,
+                            "hex_dump_first_32b": hex_dump,
+                            "shellcode_signature": shellcode_hit or "None",
+                            "verdict": verdict
+                        })
+                address = mbi.BaseAddress + mbi.RegionSize
+            
+            if rwx_count > 0:
+                stream_log("FR-DYN-05", "MEM_SCAN", f"PID {pid} ({proc_name}): Found {rwx_count} RWX memory region(s)")
+            
+            kernel32.CloseHandle(handle)
+        except Exception as e:
+            stream_log("FR-DYN-05", "ERROR", f"PID {pid} mem scan failed: {e}")
+
+# ==========================================
+# MODULE: FR-DYN-06 (Network Monitor)
+# Target APIs: connect, send, recv, WSASend,
+#   DnsQuery_A/W, InternetOpenA/W,
+#   HttpSendRequestA/W, URLDownloadToFileA/W
+# ==========================================
+def monitor_network():
+    """FR-DYN-06: Monitors DNS cache changes and active network connections.
+    Uses psutil for connection tracking and ipconfig /displaydns for DNS."""
+    global analysis_active
+    
+    known_connections = set()  # (pid, remote_ip, remote_port)
+    known_dns = set()          # domain names
+    
+    # Known C2 / suspicious ports
+    SUSPICIOUS_PORTS = {4444, 5555, 6666, 8080, 8443, 9999, 1337, 31337, 443, 4443}
+    
+    # Baseline DNS cache
+    try:
+        res = subprocess.run(['ipconfig', '/displaydns'], capture_output=True, text=True, timeout=10)
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if 'Record Name' in line:
+                domain = line.split(':', 1)[-1].strip()
+                known_dns.add(domain.lower())
+    except Exception:
+        pass
+    
+    while analysis_active:
+        time.sleep(2)
+        
+        # A. Active Connection Monitoring (connect/WSAConnect)
+        with tracking_lock:
+            pids = set(tracked_pids)
+        
+        try:
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.status != 'ESTABLISHED' and conn.status != 'SYN_SENT':
+                    continue
+                if not conn.raddr or not conn.pid:
+                    continue
+                if str(conn.pid) not in pids:
+                    continue
+                    
+                conn_key = (conn.pid, conn.raddr.ip, conn.raddr.port)
+                if conn_key not in known_connections:
+                    known_connections.add(conn_key)
+                    
+                    is_notable = conn.raddr.port in SUSPICIOUS_PORTS
+                    verdict = "MALICIOUS" if is_notable else "CLEAN"
+                    
+                    # Check for non-standard HTTPS ports
+                    if conn.raddr.port not in (80, 443, 8080) and conn.raddr.port > 1024:
+                        verdict = "SUSPICIOUS"
+                        is_notable = True
+                    
+                    try:
+                        proc_name = psutil.Process(conn.pid).name()
+                    except Exception:
+                        proc_name = 'N/A'
+                    
+                    stream_log("FR-DYN-06", "NETWORK_CONNECTION", {
+                        "pid": conn.pid,
+                        "process_name": proc_name,
+                        "protocol": "TCP",
+                        "src_ip": conn.laddr.ip if conn.laddr else "0.0.0.0",
+                        "src_port": conn.laddr.port if conn.laddr else 0,
+                        "dst_ip": conn.raddr.ip,
+                        "dst_port": conn.raddr.port,
+                        "direction": "OUTBOUND",
+                        "status": conn.status,
+                        "detail": f"Active {conn.status} connection to {conn.raddr.ip}:{conn.raddr.port}",
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+        except (psutil.AccessDenied, OSError):
+            pass
+        
+        # B. DNS Cache Delta Monitoring (DnsQuery_A/W)
+        try:
+            res = subprocess.run(['ipconfig', '/displaydns'], capture_output=True, text=True, timeout=10)
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                if 'Record Name' in line:
+                    domain = line.split(':', 1)[-1].strip().lower()
+                    if domain and domain not in known_dns:
+                        known_dns.add(domain)
+                        
+                        # Check for DGA-like domains (long random strings)
+                        is_dga = False
+                        parts = domain.split('.')
+                        if len(parts) >= 2:
+                            name_part = parts[0]
+                            if len(name_part) > 15 and sum(1 for c in name_part if c.isdigit()) > len(name_part) * 0.3:
+                                is_dga = True
+                        
+                        verdict = "SUSPICIOUS" if is_dga else "CLEAN"
+                        stream_log("FR-DYN-06", "DNS_QUERY", {
+                            "pid": 0,
+                            "process_name": "dns_cache",
+                            "protocol": "DNS",
+                            "dst_ip": "0.0.0.0",
+                            "dst_port": 53,
+                            "direction": "OUTBOUND",
+                            "detail": f"DNS resolution for: {domain}",
+                            "domain": domain,
+                            "is_dga_suspect": is_dga,
+                            "is_notable": is_dga,
+                            "verdict": verdict
+                        })
+        except Exception:
+            pass
+
+# ==========================================
+# MODULE: FR-DYN-01 & 02 (Kernel Log Parsing)
+# ==========================================
+import hashlib
+import math
+
+pid_elevation_cache = {}
+
+def calculate_entropy(path):
+    if not os.path.exists(path):
+        return 0.0
+    try:
+        total_size = os.path.getsize(path)
+        if total_size == 0:
+            return 0.0
+        counts = {}
+        with open(path, 'rb') as f:
+            while True:
+                buf = f.read(65536)
+                if not buf:
+                    break
+                for b in buf:
+                    counts[b] = counts.get(b, 0) + 1
+        entropy = 0.0
+        for count in counts.values():
+            p = count / total_size
+            entropy -= p * math.log2(p)
+        return round(entropy, 2)
+    except Exception:
+        return 0.0
+
+def is_pid_elevated(pid):
+    try:
+        pid = int(pid)
+    except ValueError:
+        return True
+        
+    if pid in pid_elevation_cache:
+        return pid_elevation_cache[pid]
+    
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
+        
+        TOKEN_QUERY = 0x0008
+        TokenElevation = 20
+        
+        h_proc = kernel32.OpenProcess(0x0400, False, pid)
+        if not h_proc:
+            pid_elevation_cache[pid] = True
+            return True
+        
+        h_token = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(h_proc, TOKEN_QUERY, ctypes.byref(h_token)):
+            kernel32.CloseHandle(h_proc)
+            pid_elevation_cache[pid] = True
+            return True
+            
+        elevation = ctypes.c_ulong()
+        size = ctypes.c_ulong()
+        res = advapi32.GetTokenInformation(h_token, TokenElevation, ctypes.byref(elevation), 4, ctypes.byref(size))
+        
+        kernel32.CloseHandle(h_token)
+        kernel32.CloseHandle(h_proc)
+        
+        is_el = (elevation.value != 0) if res else True
+        pid_elevation_cache[pid] = is_el
+        return is_el
+    except Exception:
+        pid_elevation_cache[pid] = True
+        return True
+
+def get_file_info(path):
+    if not os.path.exists(path):
+        return 0, 0.0
+    try:
+        size = os.path.getsize(path)
+        entropy = calculate_entropy(path)
+        return size, entropy
+    except Exception:
+        return 0, 0.0
+
+def check_dll_signature(path):
+    if not os.path.exists(path):
+        return "UNSIGNED"
+    try:
+        res = subprocess.run([
+            "powershell", "-Command",
+            f"(Get-AuthenticodeSignature '{path}').Status"
+        ], capture_output=True, text=True)
+        status = res.stdout.strip()
+        return "SIGNED" if status == "Valid" else "UNSIGNED"
+    except Exception:
+        return "UNSIGNED"
+
+def get_sha256(path):
+    if not os.path.exists(path):
+        return "N/A"
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return "N/A"
+
+def parse_kernel_logs():
+    """Parses ProcMon CSV to extract filesystem, registry, memory, and network mutations."""
+    if not os.path.exists(CSV_LOG):
+        stream_log("SYSTEM", "ERROR", "ProcMon CSV not found.")
+        return
+
+    with tracking_lock:
+        pids = set(tracked_pids)
+
+    stream_log("SYSTEM", "INFO", "Parsing kernel traces...")
+    with open(CSV_LOG, mode='r', encoding='utf-8', errors='ignore') as f:
+        reader = csv.reader(f)
+        next(reader, None) 
+
+        for row in reader:
+            if len(row) < 7: continue
+            time_str, proc_name, pid, op, path, res, detail = row
+            
+            if pid in pids and res == "SUCCESS":
+                is_elev = is_pid_elevated(pid)
+                
+                # Anti-Analysis Checks (FR-DYN-07)
+                lower_p = path.lower()
+                is_evasion = False
+                ev_indicator = ""
+                ev_detail = ""
+                
+                if any(x in lower_p for x in ("vmtoolsd.exe", "vboxhook.dll", "vboxmrxnp.dll", "vboxguest", "vboxservice", "vboxcontrol", "vboxtray")):
+                    is_evasion = True
+                    ev_indicator = "Virtualization files detection query"
+                    ev_detail = f"Process {proc_name} queried file: {path}"
+                elif any(x in lower_p for x in ("hardware\\acpi\\dsdt", "hardware\\description\\system\\bios", "services\\vbox", "services\\vmtools", "services\\vmware")):
+                    is_evasion = True
+                    ev_indicator = "Virtualization registry detection query"
+                    ev_detail = f"Process {proc_name} queried Registry Key: {path}"
+                    
+                if is_evasion:
+                    stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-07",
+                        "event_type": "ANTI_ANALYSIS",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "check_type": "VIRTUALIZATION_CHECK",
+                        "indicator": ev_indicator,
+                        "detail": ev_detail,
+                        "is_notable": True,
+                        "verdict": "SUSPICIOUS"
+                    })
+
+                # 1. Filesystem Mutations (FR-DYN-01)
+                if op in ("WriteFile", "SetEndOfFile"):
+                    size, entropy = get_file_info(path)
+                    
+                    is_notable = False
+                    verdict = "CLEAN"
+                    if "vssadmin" in lower_p or "\\\\.\\physicaldrive" in lower_p:
+                        is_notable = True
+                        verdict = "CRITICAL"
+                        
+                    stream_log("FR-DYN-01", "FILE_MODIFIED", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-01",
+                        "event_type": "FILE_MODIFIED",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "target_path": path,
+                        "entropy": entropy,
+                        "size_bytes": size,
+                        "is_elevated": is_elev,
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+                elif op == "CreateFile" and ("Disposition: Create" in detail or "Disposition: New" in detail):
+                    size, entropy = get_file_info(path)
+                    is_notable = False
+                    verdict = "CLEAN"
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext in (".exe", ".dll", ".sys", ".bat", ".vbs", ".ps1", ".scr"):
+                        if "appdata\\local\\temp" in lower_p or "system32\\drivers" in lower_p or "programdata" in lower_p:
+                            is_notable = True
+                            verdict = "SUSPICIOUS"
+                            
+                    stream_log("FR-DYN-01", "FILE_CREATED", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-01",
+                        "event_type": "FILE_CREATED",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "target_path": path,
+                        "entropy": entropy,
+                        "size_bytes": size,
+                        "is_elevated": is_elev,
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+                elif op == "SetDispositionInformationFile" and "Delete: True" in detail:
+                    stream_log("FR-DYN-01", "FILE_DELETED", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-01",
+                        "event_type": "FILE_DELETED",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "target_path": path,
+                        "is_elevated": is_elev,
+                        "is_notable": False,
+                        "verdict": "CLEAN"
+                    })
+                elif op == "SetRenameInformationFile":
+                    dest_path = path
+                    dest_match = re.search(r"FileName:\s*([^\s,]+)", detail)
+                    if dest_match:
+                        dest_path = dest_match.group(1).strip()
+                    size, entropy = get_file_info(dest_path)
+                    
+                    stream_log("FR-DYN-01", "FILE_RENAMED", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-01",
+                        "event_type": "FILE_RENAMED",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "target_path": dest_path,
+                        "previous_path": path,
+                        "entropy": entropy,
+                        "size_bytes": size,
+                        "is_elevated": is_elev,
+                        "is_notable": False,
+                        "verdict": "CLEAN"
+                    })
+                    
+                # 2. Registry Mutations (FR-DYN-02)
+                elif op == "RegSetValue":
+                    key_path, value_name = os.path.split(path)
+                    val_type = "REG_SZ"
+                    val_data = ""
+                    type_match = re.search(r"Type:\s*([^\s,]+)", detail)
+                    if type_match:
+                        val_type = type_match.group(1).strip()
+                    data_match = re.search(r"Data:\s*(.*)", detail)
+                    if data_match:
+                        val_data = data_match.group(1).strip()
+                        
+                    is_notable = False
+                    verdict = "CLEAN"
+                    lower_val = value_name.lower()
+                    if lower_val in ("disableantispyware", "disablerealtimemonitoring", "disablebehaviormonitoring") and "1" in val_data:
+                        is_notable = True
+                        verdict = "HIGH RISK"
+                    elif lower_val in ("disabletaskmgr", "disableregistrytools") and "1" in val_data:
+                        is_notable = True
+                        verdict = "HIGH RISK"
+                    elif lower_val == "enablelua" and "0" in val_data:
+                        is_notable = True
+                        verdict = "HIGH RISK"
+                        
+                    stream_log("FR-DYN-02", "REG_WRITE", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-02",
+                        "event_type": "REG_WRITE",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "key_path": key_path,
+                        "value_name": value_name,
+                        "value_type": val_type,
+                        "value_data": val_data,
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+                    
+                    # 3. Persistence Registry Tripwire (FR-DYN-03)
+                    if "software\\microsoft\\windows\\currentversion\\run" in lower_p or "software\\microsoft\\windows\\currentversion\\runonce" in lower_p:
+                        stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+                            "timestamp": time_str,
+                            "tag": "FR-DYN-03",
+                            "event_type": "PERSISTENCE_CREATE",
+                            "pid": int(pid),
+                            "process_name": proc_name,
+                            "category": "registry_run",
+                            "mechanism": "Run Key Modification",
+                            "target_path": path,
+                            "command": val_data,
+                            "detection_method": "Kernel Driver Registry Callback mapping",
+                            "is_notable": True,
+                            "verdict": "SUSPICIOUS"
+                        })
+                    elif "system\\currentcontrolset\\services" in lower_p:
+                        stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+                            "timestamp": time_str,
+                            "tag": "FR-DYN-03",
+                            "event_type": "PERSISTENCE_CREATE",
+                            "pid": int(pid),
+                            "process_name": proc_name,
+                            "category": "windows_service",
+                            "mechanism": "Windows Service Registration",
+                            "target_path": path,
+                            "command": val_data,
+                            "detection_method": "Kernel Driver Registry Callback mapping",
+                            "is_notable": True,
+                            "verdict": "SUSPICIOUS"
+                        })
+                        
+                elif op == "RegCreateKey" and "REG_CREATED_NEW_KEY" in detail:
+                    stream_log("FR-DYN-02", "REG_CREATED", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-02",
+                        "event_type": "REG_CREATED",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "key_path": path,
+                        "is_notable": False,
+                        "verdict": "CLEAN"
+                    })
+                elif op in ("RegDeleteKey", "RegDeleteValue"):
+                    stream_log("FR-DYN-02", "REG_DELETED", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-02",
+                        "event_type": "REG_DELETED",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "key_path": path,
+                        "is_notable": False,
+                        "verdict": "CLEAN"
+                    })
+
+                # 4. Process monitoring (FR-DYN-04)
+                elif op == "Process Create":
+                    child_pid = 0
+                    cmd_line = ""
+                    pid_match = re.search(r"PID:\s*(\d+)", detail)
+                    if pid_match:
+                        child_pid = int(pid_match.group(1))
+                    cmd_match = re.search(r"Command Line:\s*(.*)", detail)
+                    if cmd_match:
+                        cmd_line = cmd_match.group(1)
+                        
+                    # Use centralized LotL classifier
+                    verdict = _classify_process_verdict(cmd_line, os.path.basename(path))
+                    is_notable = verdict != "CLEAN"
+                    
+                    # Also flag execution from temp/appdata paths
+                    if not is_notable and ("temp" in path.lower() or "appdata\\local\\temp" in path.lower()):
+                        is_notable = True
+                        verdict = "SUSPICIOUS"
+                        
+                    stream_log("FR-DYN-04", "PROCESS_SPAWN", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-04",
+                        "event_type": "PROCESS_SPAWN",
+                        "pid": child_pid,
+                        "ppid": int(pid),
+                        "process_name": os.path.basename(path),
+                        "command_line": cmd_line,
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+                    
+                    with tracking_lock:
+                        tracked_pids.add(str(child_pid))
+                    pids.add(str(child_pid))
+
+                # 5. Memory / DLL loading (FR-DYN-05)
+                elif op == "Load Image" and path.lower().endswith(".dll"):
+                    sig = check_dll_signature(path)
+                    sha = get_sha256(path)
+                    risk_indicators = []
+                    is_notable = False
+                    verdict = "CLEAN"
+                    if sig == "UNSIGNED":
+                        risk_indicators.append("Unsigned binary execution")
+                        is_notable = True
+                        verdict = "SUSPICIOUS"
+                    if "temp" in path.lower() or "appdata" in path.lower():
+                        risk_indicators.append("Loaded from temp directory")
+                        is_notable = True
+                        verdict = "SUSPICIOUS"
+                        
+                    stream_log("FR-DYN-05", "DLL_LOAD", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-05",
+                        "event_type": "DLL_LOAD",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "dll_name": os.path.basename(path),
+                        "dll_path": path,
+                        "signature_status": sig,
+                        "sha256": sha,
+                        "risk_indicators": risk_indicators,
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+
+                # 6. Network / Winsock Sockets (FR-DYN-06)
+                elif op in ("TCP Connect", "TCP Send", "UDP Send"):
+                    remote_addr = path
+                    if "->" in path:
+                        remote_addr = path.split("->")[1].strip()
+                        
+                    dst_ip = remote_addr
+                    dst_port = 0
+                    if ":" in remote_addr:
+                        parts_ip = remote_addr.split(":")
+                        dst_ip = parts_ip[0]
+                        try:
+                            dst_port = int(parts_ip[-1])
+                        except ValueError:
+                            pass
+                            
+                    is_notable = False
+                    verdict = "CLEAN"
+                    if dst_port in (4444, 8080, 9999):
+                        is_notable = True
+                        verdict = "MALICIOUS"
+                        
+                    stream_log("FR-DYN-06", "NETWORK_CONNECTION", {
+                        "timestamp": time_str,
+                        "tag": "FR-DYN-06",
+                        "event_type": "NETWORK_CONNECTION",
+                        "pid": int(pid),
+                        "process_name": proc_name,
+                        "protocol": op.split()[0],
+                        "src_ip": "192.168.185.20",
+                        "src_port": 0,
+                        "dst_ip": dst_ip,
+                        "dst_port": dst_port,
+                        "direction": "OUTBOUND",
+                        "detail": f"{op} connection to {remote_addr} with detail: {detail}",
+                        "is_notable": is_notable,
+                        "verdict": verdict
+                    })
+
+# ==========================================
+# MASTER EXECUTION ORCHESTRATOR
+# ==========================================
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Unified Sandbox Agent")
+    parser.add_argument(
+        "--timeout", type=int, default=ANALYSIS_TIMEOUT,
+        help="Analysis monitoring window in seconds (default: %(default)s). "
+             "Should be shorter than the host timeout to allow teardown."
+    )
+    args = parser.parse_args()
+    analysis_timeout = args.timeout
+
+    stream_log("SYSTEM", "INIT", "Unified Agent Started. Setting up environment...")
+    
+    # Terminate any existing procmon instances first to release file locks
+    for proc in psutil.process_iter(['name']):
+        try:
+            if proc.info['name'] and proc.info['name'].lower() in ('procmon.exe', 'procmon64.exe'):
+                proc.kill()
+        except Exception:
+            pass
+    time.sleep(1)
+    
+    # 1. Setup Environment
+    if not os.path.exists(r"C:\Analysis"):
+        os.makedirs(r"C:\Analysis")
+    for f in [PML_LOG, CSV_LOG]:
+        try:
+            if os.path.exists(f): os.remove(f)
+        except Exception as e:
+            stream_log("SYSTEM", "WARNING", f"Could not remove temporary file {f}: {e}")
+
+    # 2. Start Kernel Logging (ProcMon)
+    stream_log("SYSTEM", "INIT", "Starting kernel filter drivers...")
+    try:
+        subprocess.Popen([PROCMON_PATH, "/BackingFile", PML_LOG, "/Quiet", "/AcceptEula"], shell=False)
+    except Exception as e:
+        stream_log("SYSTEM", "ERROR", f"Failed to start ProcMon: {e}")
+    time.sleep(3) # Let filter attach
+
+    # 4. Start Monitoring Threads (all FR-DYN categories)
+    threads = [
+        threading.Thread(target=monitor_hardware,    name='FR-DYN-07_Hardware'),
+        threading.Thread(target=monitor_processes,    name='FR-DYN-04_Processes'),
+        threading.Thread(target=monitor_persistence,  name='FR-DYN-03_Persistence'),
+        threading.Thread(target=monitor_network,      name='FR-DYN-06_Network'),
+    ]
+    for t in threads:
+        t.daemon = True
+        t.start()
+
+    time.sleep(1) # Let monitoring threads initialize
+
+    # 3. Detonate Malware
+    stream_log("SYSTEM", "EXEC", f"Detonating {TARGET_EXE}")
+    try:
+        proc = subprocess.Popen([TARGET_EXE], shell=False)
+        with tracking_lock:
+            tracked_pids.add(str(proc.pid))
+        stream_log("FR-DYN-04", "PROCESS_ROOT", f"PID: {proc.pid}")
+    except Exception as e:
+        stream_log("SYSTEM", "FATAL", f"Failed to execute target: {e}")
+        sys.exit(1)
+
+    # 5. Analysis Window
+    stream_log("SYSTEM", "INFO", f"Analysis window open for {analysis_timeout}s...")
+    time.sleep(analysis_timeout)
+
+    # 6. Teardown & Forensics
+    stream_log("SYSTEM", "INFO", "Analysis window closed. Halting active monitors...")
+    analysis_active = False # Signal threads to die
+    
+    # Run memory forensics before killing processes
+    scan_memory()
+    
+    # Stop ProcMon and convert log
+    stream_log("SYSTEM", "INFO", "Terminating kernel trace and dumping to CSV (This may take a moment)...")
+    try:
+        subprocess.run([PROCMON_PATH, "/Terminate"], check=True, capture_output=True)
+    except Exception as e:
+        stream_log("SYSTEM", "WARNING", f"Failed to terminate ProcMon: {e}")
+    time.sleep(2)
+    
+    try:
+        subprocess.run([PROCMON_PATH, "/OpenLog", PML_LOG, "/SaveAs", CSV_LOG, "/Quiet"], check=True, capture_output=True)
+    except Exception as e:
+        stream_log("SYSTEM", "WARNING", f"Failed to export ProcMon log to CSV: {e}")
+    time.sleep(1)
+    
+    # 7. Post-Processing
+    parse_kernel_logs()
+    
+    stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")

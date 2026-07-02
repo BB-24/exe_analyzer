@@ -1,0 +1,29 @@
+# ==============================================================================
+# MARS (Malware Analysis & Reporting System) — Python Requirements (No YARA)
+# Use this when building yara-python is not supported/failing on your system.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Host Application Dependencies (VM A — Web Dashboard & Detonation Engine)
+# ------------------------------------------------------------------------------
+fastapi          # Web framework core
+uvicorn           # ASGI web server
+python-multipart   # Multipart request parser for file uploads
+jinja2             # Template rendering engine
+sqlalchemy         # Database ORM library
+PyPubSub           # Thread-safe synchronous event broker
+PyYAML             # YAML configuration parser
+pefile             # Portable Executable (PE) static analysis parser
+reportlab          # PDF document layout and generation engine
+scapy              # Deep packet inspection & sniffer network engine
+watchdog           # Filesystem event monitoring library
+psutil             # Process and resource monitoring library
+
+# ------------------------------------------------------------------------------
+# 2. Guest Sandbox Agent Dependencies (VM B — Detonation Environment)
+# Note: These are required inside the Windows 10 Guest sandbox VM (VM B)
+# and can be installed via: pip install pyserial psutil pywin32 wmi watchdog
+# ------------------------------------------------------------------------------
+pyserial           # Serial port communication (COM1 telemetry stream)
+pywin32            # Windows APIs interaction layer
+wmi                # Windows Management Instrumentation interface
