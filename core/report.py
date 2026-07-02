@@ -702,30 +702,131 @@ class ReportGenerator:
 
         # 3. Persistence Check During the Execution
         story.append(Paragraph("Persistence Check During the Execution", self.h2_style))
-        pers_rows = []
+        
+        # Phase 4: High-Confidence and Low-Confidence Noise Tables
+        has_new_schema = False
+        high_conf = []
+        low_conf = []
+        
         if "process_tree_generation" in telemetry:
             pers_data = telemetry.get("persistence_analysis", {})
-            for detail in pers_data.get("details", []):
-                pers_rows.append([
-                    Paragraph(detail.get("category", "N/A"), self.normal),
-                    Paragraph(detail.get("mechanism", "N/A"), self.normal),
-                    Paragraph(detail.get("target_path", "N/A"), self.code_style)
-                ])
-        else:
-            for ev in telemetry.get("Persistence", []):
-                pers_rows.append([Paragraph("Mechanism", self.normal), Paragraph(str(ev), self.normal), Paragraph("N/A", self.code_style)])
+            if "high_confidence_persistence" in pers_data or "low_confidence_noise" in pers_data:
+                has_new_schema = True
+                high_conf = pers_data.get("high_confidence_persistence", [])
+                low_conf = pers_data.get("low_confidence_noise", [])
+        
+        def is_user_directory(s):
+            if not s:
+                return False
+            s_lower = str(s).lower()
+            return any(dir_name in s_lower for dir_name in ["appdata", "roaming", "local\\temp", "\\temp\\", "users\\public", "programdata", "desktop", "downloads"])
 
-        if pers_rows:
-            t_pers = Table(pers_rows, colWidths=[120, 150, 234])
-            t_pers.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                ('PADDING', (0, 0), (-1, -1), 6),
-            ]))
-            story.append(t_pers)
+        if has_new_schema:
+            # 1. High Confidence Persistence Table
+            story.append(Paragraph("<b>High-Confidence Persistence Entries</b>", self.normal_bold))
+            story.append(Spacer(1, 3))
+            
+            high_rows = [[
+                Paragraph("<b>Category</b>", self.normal_bold),
+                Paragraph("<b>Mechanism</b>", self.normal_bold),
+                Paragraph("<b>Target Path / Artifact</b>", self.normal_bold)
+            ]]
+            
+            for item in high_conf:
+                target = item.get("target_path", "N/A")
+                cmd = item.get("command", "N/A")
+                target_styled = target
+                if is_user_directory(target) or is_user_directory(cmd):
+                    target_styled = f"<font color='#dc2626'><b>[!] {target}</b></font>"
+                    if cmd and cmd != "N/A":
+                        target_styled += f"<br/><font color='#b45309'>Cmd: {cmd}</font>"
+                else:
+                    if cmd and cmd != "N/A":
+                        target_styled += f"<br/><font color='#6B7280'>Cmd: {cmd}</font>"
+                        
+                high_rows.append([
+                    Paragraph(item.get("category", "N/A"), self.normal),
+                    Paragraph(item.get("mechanism", "N/A"), self.normal),
+                    Paragraph(target_styled, self.code_style)
+                ])
+                
+            if len(high_rows) > 1:
+                t_high = Table(high_rows, colWidths=[110, 140, 254])
+                t_high.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ]))
+                story.append(t_high)
+            else:
+                story.append(Paragraph("No high-confidence persistence mechanisms established.", self.normal))
+                
+            story.append(Spacer(1, 8))
+            
+            # 2. Low Confidence / System Noise Table
+            story.append(Paragraph("<b>System Noise / Low Confidence Entries</b>", self.normal_bold))
+            story.append(Spacer(1, 3))
+            
+            low_rows = [[
+                Paragraph("<b>Category</b>", self.normal_bold),
+                Paragraph("<b>Mechanism</b>", self.normal_bold),
+                Paragraph("<b>System Target / Binary Path</b>", self.normal_bold)
+            ]]
+            
+            for item in low_conf:
+                target = item.get("target_path", "N/A")
+                cmd = item.get("command", "N/A")
+                target_styled = target
+                if cmd and cmd != "N/A":
+                    target_styled += f"<br/><font color='#6B7280'>Cmd: {cmd}</font>"
+                    
+                low_rows.append([
+                    Paragraph(item.get("category", "N/A"), self.normal),
+                    Paragraph(item.get("mechanism", "N/A"), self.normal),
+                    Paragraph(target_styled, self.code_style)
+                ])
+                
+            if len(low_rows) > 1:
+                t_low = Table(low_rows, colWidths=[110, 140, 254])
+                t_low.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ]))
+                story.append(t_low)
+            else:
+                story.append(Paragraph("No low-confidence system noise/lingering modifications detected.", self.normal))
+                
+            story.append(Spacer(1, 8))
+            
         else:
-            story.append(Paragraph("N/A - No persistence mechanisms established", self.normal))
-        story.append(Spacer(1, 10))
+            # Fallback legacy layout
+            pers_rows = []
+            if "process_tree_generation" in telemetry:
+                pers_data = telemetry.get("persistence_analysis", {})
+                for detail in pers_data.get("details", []):
+                    pers_rows.append([
+                        Paragraph(detail.get("category", "N/A"), self.normal),
+                        Paragraph(detail.get("mechanism", "N/A"), self.normal),
+                        Paragraph(detail.get("target_path", "N/A"), self.code_style)
+                    ])
+            else:
+                for ev in telemetry.get("Persistence", []):
+                    pers_rows.append([Paragraph("Mechanism", self.normal), Paragraph(str(ev), self.normal), Paragraph("N/A", self.code_style)])
+            
+            if pers_rows:
+                t_pers = Table(pers_rows, colWidths=[120, 150, 234])
+                t_pers.setStyle(TableStyle([
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
+                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                ]))
+                story.append(t_pers)
+            else:
+                story.append(Paragraph("N/A - No persistence mechanisms established", self.normal))
+            story.append(Spacer(1, 10))
 
         # 4. Process Initialization
         story.append(Paragraph("Process Initialization", self.h2_style))

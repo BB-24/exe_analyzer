@@ -210,6 +210,7 @@ class MalwareSandboxAnalyzer:
         self.network_details = []
         self.loaded_dlls = []
         self.agent_err_log_lines = []
+        self.golden_snapshot = {"tasks": set(), "services": set(), "run_keys": set()}
 
     def _log(self, msg):
         pub.sendMessage("gui.log", msg=msg)
@@ -1159,9 +1160,176 @@ class MalwareSandboxAnalyzer:
                 if self in self._active_analyzers:
                     self._active_analyzers.remove(self)
 
+    def _get_scheduled_tasks(self) -> set:
+        tasks = set()
+        try:
+            res = subprocess.run(['schtasks', '/query', '/fo', 'csv', '/nh'], capture_output=True, text=True, timeout=10)
+            if res.returncode == 0:
+                for line in res.stdout.strip().splitlines():
+                    parts = line.strip('"').split('","')
+                    if parts and parts[0]:
+                        tasks.add(parts[0].strip('"'))
+        except Exception:
+            pass
+        return tasks
+
+    def _get_windows_services(self) -> set:
+        services = set()
+        try:
+            for svc in psutil.win_service_iter():
+                try:
+                    services.add((svc.name(), svc.display_name(), svc.binpath()))
+                except Exception:
+                    try:
+                        services.add((svc.name(), svc.display_name(), ""))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return services
+
+    def _get_registry_run_keys(self) -> set:
+        run_entries = set()
+        try:
+            import winreg
+            run_paths = [
+                (winreg.HKEY_CURRENT_USER,  r"Software\Microsoft\Windows\CurrentVersion\Run",     "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                (winreg.HKEY_CURRENT_USER,  r"Software\Microsoft\Windows\CurrentVersion\RunOnce", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run",     "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\RunOnce", "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"),
+            ]
+            for hive, subkey, label in run_paths:
+                try:
+                    key = winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+                    i = 0
+                    while True:
+                        try:
+                            name, val, _ = winreg.EnumValue(key, i)
+                            run_entries.add((label, name, str(val)))
+                            i += 1
+                        except OSError:
+                            break
+                    winreg.CloseKey(key)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return run_entries
+
+    def _capture_golden_snapshot(self):
+        """Phase 1: Capture pre-detonation golden snapshot of the system."""
+        try:
+            self.golden_snapshot = {
+                "tasks": self._get_scheduled_tasks(),
+                "services": self._get_windows_services(),
+                "run_keys": self._get_registry_run_keys()
+            }
+            self._log(f"[+] Golden Snapshot: {len(self.golden_snapshot['tasks'])} tasks, {len(self.golden_snapshot['services'])} services, {len(self.golden_snapshot['run_keys'])} run keys.")
+        except Exception as e:
+            self._log(f"[-] Failed to capture golden snapshot: {e}")
+
+    def _capture_post_snapshot_and_diff(self):
+        """Phase 3: Capture post-detonation snapshot and calculate diff."""
+        try:
+            post_tasks = self._get_scheduled_tasks()
+            post_services = self._get_windows_services()
+            post_run_keys = self._get_registry_run_keys()
+            
+            diff_tasks = post_tasks - self.golden_snapshot["tasks"]
+            diff_services = post_services - self.golden_snapshot["services"]
+            diff_run_keys = post_run_keys - self.golden_snapshot["run_keys"]
+            
+            self._log(f"[+] Snapshot diff completed: +{len(diff_tasks)} tasks, +{len(diff_services)} services, +{len(diff_run_keys)} run keys.")
+            
+            for task in diff_tasks:
+                self.persistence_entries.append({
+                    "category": "scheduled_task",
+                    "mechanism": "Scheduled Task Creation",
+                    "target_path": task,
+                    "command": "N/A",
+                    "detection_method": "Snapshot Diffing Engine"
+                })
+                
+            for name, disp, binpath in diff_services:
+                self.persistence_entries.append({
+                    "category": "service",
+                    "mechanism": "Windows Service Creation",
+                    "target_path": f"{name} ({disp})",
+                    "command": binpath if binpath else "N/A",
+                    "detection_method": "Snapshot Diffing Engine"
+                })
+                
+            for label, name, val in diff_run_keys:
+                self.persistence_entries.append({
+                    "category": "registry_run",
+                    "mechanism": "Run Key Modification",
+                    "target_path": f"{label}\\{name}",
+                    "command": val,
+                    "detection_method": "Snapshot Diffing Engine"
+                })
+        except Exception as e:
+            self._log(f"[-] Snapshot diffing failed: {e}")
+
+    def _classify_persistence_entries(self):
+        """Phase 3: Noise reduction. Discard BAM entries, filter tasks under Microsoft\\Windows\\ unless high risk."""
+        high_confidence = []
+        low_confidence_noise = []
+        
+        def is_high_risk_path(path_str):
+            if not path_str:
+                return False
+            path_lower = path_str.lower()
+            return any(ind in path_lower for ind in ["appdata", "roaming", "local\\temp", "\\temp\\", "users\\public", "programdata", "\\desktop", "\\downloads"])
+            
+        cleaned_entries = []
+        for entry in self.persistence_entries:
+            target = entry.get("target_path", "")
+            cmd = entry.get("command", "")
+            
+            # 1. Discard BAM modifications
+            if r"services\bam\state\usersettings" in target.lower() or r"services\bam\state\usersettings" in cmd.lower():
+                continue
+            cleaned_entries.append(entry)
+            
+        for entry in cleaned_entries:
+            category = entry.get("category", "")
+            target = entry.get("target_path", "")
+            cmd = entry.get("command", "")
+            
+            # 2. Whitelist scheduled tasks under \Microsoft\Windows\ unless pointing to high-risk dirs
+            if category == "scheduled_task" and "\\microsoft\\windows\\" in target.lower():
+                if is_high_risk_path(cmd) or is_high_risk_path(target):
+                    high_confidence.append(entry)
+                else:
+                    low_confidence_noise.append(entry)
+            elif category == "scheduled_task":
+                if r"system32" in cmd.lower() or r"system32" in target.lower():
+                    low_confidence_noise.append(entry)
+                else:
+                    high_confidence.append(entry)
+            elif category == "service":
+                if r"system32" in cmd.lower():
+                    low_confidence_noise.append(entry)
+                else:
+                    high_confidence.append(entry)
+            elif category == "registry_run":
+                if is_high_risk_path(cmd) or is_high_risk_path(target):
+                    high_confidence.append(entry)
+                elif r"system32" in cmd.lower():
+                    low_confidence_noise.append(entry)
+                else:
+                    high_confidence.append(entry)
+            else:
+                high_confidence.append(entry)
+                
+        return high_confidence, low_confidence_noise
+
     def _execute_analysis_internal(self):
         self._log(f"[*] Initializing Dynamic Analysis Module for: {self.target_binary}")
         self.is_running = True
+        
+        # Phase 1: Pre-Detonation Golden Snapshot
+        self._capture_golden_snapshot()
 
         net_thread = threading.Thread(target=self._start_network_sniffer, daemon=True)
         net_thread.start()
@@ -1785,6 +1953,10 @@ class MalwareSandboxAnalyzer:
             raise RuntimeError("Analysis cancelled by user.")
 
         self.is_running = False
+        
+        # Phase 3: Post-Detonation Snapshot & Diffing
+        self._capture_post_snapshot_and_diff()
+        
         self._log("[*] Execution analysis timer concluded. Merging modular records...")
 
     def _parse_fakenet_pcap(self, pcap_path):
@@ -2017,6 +2189,9 @@ class MalwareSandboxAnalyzer:
         except Exception as ve:
             self._log(f"[-] CPU visualization generation failed: {ve}")
 
+        # Run Phase 3 telemetry diffing & noise reduction classification
+        high_conf, low_conf = self._classify_persistence_entries()
+
         main_process_entry = {
             "pid": self.target_pid,
             "process_name": os.path.basename(self.target_binary),
@@ -2035,6 +2210,8 @@ class MalwareSandboxAnalyzer:
             "file_system_monitoring": self.file_data,
             "persistence_analysis": {
                 "total_persistence_entries": len(self.persistence_entries),
+                "high_confidence_persistence": high_conf,
+                "low_confidence_noise": low_conf,
                 "details": self.persistence_entries,
             },
             "process_tree_generation": {"tree": main_process_entry},
