@@ -42,6 +42,13 @@ examples:
         help="Skip the dynamic (VM sandbox) analysis phase",
     )
     parser.add_argument(
+        "--duration", "-d",
+        type=int,
+        choices=[120, 540, 900],
+        default=120,
+        help="Unified agent analysis window in seconds (120, 540, or 900; default: 120)",
+    )
+    parser.add_argument(
         "--output", "-o",
         metavar="DIR",
         default=None,
@@ -127,7 +134,7 @@ class CLIRunner:
     # Public entry-point
     # ------------------------------------------------------------------
 
-    def run(self, filepath, run_static, run_dynamic, config_path, output_dir):
+    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120):
         import yaml
         from core.pipeline import AnalysisPipeline
 
@@ -193,9 +200,10 @@ class CLIRunner:
             filepath=filepath,
             run_static=run_static,
             run_dynamic=run_dynamic,
+            duration_seconds=duration_seconds,
         )
 
-        self._done.wait(timeout=600)
+        self._done.wait(timeout=duration_seconds + 600)
 
         print(self.PHASE)
         self._print_score_banner()
@@ -285,6 +293,7 @@ def run_cli(args=None):
         run_dynamic = not opts.no_dynamic,
         config_path = opts.config,
         output_dir  = opts.output,
+        duration_seconds = opts.duration,
     )
     sys.exit(exit_code)
 

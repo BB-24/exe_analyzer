@@ -8,7 +8,7 @@ import threading
 import psutil
 import yaml
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Tuple, Any
 from pubsub import pub
 from scapy.all import sniff, IP, TCP, Raw
 
@@ -57,110 +57,346 @@ class ProcessNode:
     timestamp: float = 0.0
 
 
-class ProcessTreeVisualizer:
+class GraphGenerator:
+    """
+    Cohesive class that handles all graph and chart visualization tasks.
+    """
+    
     @staticmethod
-    def generate_graph(processes: List[ProcessNode], output_image_path: str):
+    def generate_cpu_graph(resource_series: List[dict], output_image_path: str) -> bool:
+        """
+        Generates a robust CPU utilization profile area chart.
+        If data is invalid or empty, saves a clean fallback placeholder instead of crashing.
+        """
         if not HAS_VISUALIZATION:
-            print("[!] Visualization libraries (networkx, matplotlib) are not installed. Skipping image generation.")
+            print("[!] Visualization libraries (matplotlib) are not installed. Skipping CPU graph.")
+            return False
+
+        try:
+            # 1. Input sanitization
+            if not resource_series:
+                raise ValueError("Resource series data is empty")
+                
+            timestamps = []
+            cpu_percents = []
+            
+            for r in resource_series:
+                if not isinstance(r, dict):
+                    continue
+                elapsed = r.get("elapsed_seconds")
+                cpu = r.get("cpu_percent")
+                
+                # Check for None or invalid numeric values
+                if elapsed is None or cpu is None:
+                    continue
+                try:
+                    elapsed_val = float(elapsed)
+                    cpu_val = float(cpu)
+                    timestamps.append(elapsed_val)
+                    cpu_percents.append(cpu_val)
+                except (ValueError, TypeError):
+                    continue
+
+            if not timestamps or not cpu_percents or len(timestamps) != len(cpu_percents):
+                raise ValueError("No valid or aligned numeric CPU telemetry found")
+
+            # 2. Plotting
+            plt.figure(figsize=(10, 4))
+            plt.plot(timestamps, cpu_percents, color='#1e3a8a', linewidth=2, label='CPU Usage (%)')
+            plt.fill_between(timestamps, cpu_percents, color='#1e3a8a', alpha=0.15, label='CPU Area')
+            
+            plt.title("CPU Utilization Profile", fontsize=12, color='#1e3a8a', pad=15, fontweight='bold')
+            plt.xlabel("Elapsed Time (seconds)", fontsize=9, color='#1e293b')
+            plt.ylabel("CPU Usage (%)", fontsize=9, color='#1e293b')
+            
+            plt.gcf().patch.set_facecolor('#cbd5e1')
+            plt.gca().set_facecolor('#cbd5e1')
+            
+            # Style grid & ticks
+            plt.grid(True, color='#ffffff', linestyle='--', linewidth=0.5)
+            plt.tick_params(colors='#1e293b', labelsize=8)
+            
+            # Remove top/right spines
+            for spine in plt.gca().spines.values():
+                spine.set_color('#94a3b8')
+                
+            # Stylized light theme custom legend
+            plt.legend(
+                loc='upper right',
+                frameon=True,
+                facecolor='#ffffff',
+                edgecolor='#cbd5e1',
+                labelcolor='#1e293b',
+                fontsize=8
+            )
+            
+            plt.tight_layout()
+            plt.savefig(output_image_path, facecolor='#cbd5e1', edgecolor='none', dpi=300)
+            plt.close()
+            return True
+            
+        except Exception as e:
+            print(f"[!] Error generating CPU graph: {e}. Saving placeholder image.")
+            return GraphGenerator.generate_cpu_placeholder(output_image_path)
+
+    @staticmethod
+    def generate_cpu_placeholder(output_image_path: str) -> bool:
+        """Generates a high-quality stylized placeholder when CPU data is unavailable."""
+        try:
+            plt.figure(figsize=(10, 4))
+            plt.gcf().patch.set_facecolor('#cbd5e1')
+            plt.gca().set_facecolor('#cbd5e1')
+            
+            # Draw a centered text message
+            plt.text(
+                0.5, 0.5, 
+                "CPU Utilization Profile\n[ Data Unavailable ]", 
+                color='#dc2626', 
+                fontsize=14, 
+                fontweight='bold',
+                ha='center', 
+                va='center'
+            )
+            
+            plt.axis('off')
+            plt.tight_layout()
+            plt.savefig(output_image_path, facecolor='#cbd5e1', edgecolor='none', dpi=300)
+            plt.close()
+            return True
+        except Exception as e:
+            print(f"[!] Failed to write CPU placeholder image: {e}")
+            return False
+
+    @staticmethod
+    def compute_hierarchical_layout(subG: nx.DiGraph) -> Dict[Any, Tuple[float, float]]:
+        """
+        Computes a non-overlapping, recursive tree layout for a directed tree/DAG.
+        Ensures parent nodes are centered above their children, and sibling subtrees
+        are cleanly separated horizontally without overlaps.
+        """
+        # Find roots (nodes with in-degree 0)
+        roots = [n for n, d in subG.in_degree() if d == 0]
+        if not roots:
+            roots = [max(subG.nodes(), key=lambda n: subG.out_degree(n))] if subG.nodes() else []
+            
+        pos = {}
+        subtree_width = {}
+        
+        def calculate_widths(node, visited):
+            visited.add(node)
+            children = [c for c in subG.successors(node) if c not in visited]
+            if not children:
+                subtree_width[node] = 1.0
+                return 1.0
+            width = 0.0
+            for child in children:
+                width += calculate_widths(child, visited)
+            # Add a small buffer between children groups to prevent labels touching
+            width += 0.25 * (len(children) - 1)
+            subtree_width[node] = max(width, 1.0)
+            return subtree_width[node]
+            
+        # Calculate subtree widths for all roots
+        visited_width = set()
+        for r in roots:
+            calculate_widths(r, visited_width)
+            
+        # Now layout nodes level by level.
+        # We start at y = 0.0 for roots and go down by -1.5 per level.
+        # Each sibling gets a segment width proportional to its subtree size.
+        def assign_positions(node, x_start, x_end, level, visited):
+            visited.add(node)
+            y = -level * 1.5
+            children = [c for c in subG.successors(node) if c not in visited]
+            
+            if not children:
+                x = (x_start + x_end) / 2.0
+                pos[node] = (x, y)
+                return
+                
+            sum_child_widths = sum(subtree_width[c] for c in children)
+            total_padding = 0.25 * (len(children) - 1)
+            segment_width = x_end - x_start
+            
+            usable_width = segment_width - total_padding
+            if usable_width < 0:
+                usable_width = segment_width
+                total_padding = 0.0
+                
+            curr_x = x_start
+            child_positions = []
+            
+            for idx, child in enumerate(children):
+                child_share = (subtree_width[child] / sum_child_widths) * usable_width
+                assign_positions(child, curr_x, curr_x + child_share, level + 1, visited)
+                child_positions.append(pos[child][0])
+                curr_x += child_share
+                if idx < len(children) - 1:
+                    curr_x += 0.25
+                    
+            x = sum(child_positions) / len(child_positions)
+            pos[node] = (x, y)
+            
+        visited_pos = set()
+        curr_x = 0.0
+        x_gap = 1.0
+        for r in roots:
+            r_width = subtree_width.get(r, 1.0)
+            assign_positions(r, curr_x, curr_x + r_width, 0, visited_pos)
+            curr_x += r_width + x_gap
+            
+        return pos
+
+    @staticmethod
+    def generate_process_tree_graph(processes: List[ProcessNode], output_image_path: str) -> bool:
+        """
+        Generates a NetworkX DiGraph process spawn tree, handling disconnected components/orphans,
+        and placing them side-by-side cleanly without overlaps.
+        """
+        if not HAS_VISUALIZATION:
+            print("[!] Visualization libraries (networkx, matplotlib) are not installed. Skipping process tree graph.")
             return False
         if not processes:
             return False
-            
-        G = nx.DiGraph()
-        
-        color_map = {
-            'Root': '#3b82f6',
-            'Primary': '#ef4444',
-            'Secondary': '#f97316'
-        }
-        
-        node_colors = []
-        labels = {}
-        
-        for proc in processes:
-            G.add_node(proc.pid, classification=proc.classification)
-            labels[proc.pid] = f"{proc.name}\n({proc.pid})"
-            if proc.ppid and G.has_node(proc.ppid):
-                G.add_edge(proc.ppid, proc.pid)
-                
-        for node in G.nodes():
-            classification = G.nodes[node].get('classification', 'Secondary')
-            node_colors.append(color_map.get(classification, '#64748b'))
-            
-        plt.figure(figsize=(10, 6))
-        ax = plt.gca()
-        ax.margins(0.15) # Add margin padding to prevent nodes from clipping or overlapping borders
-        
+
         try:
-            pos = nx.spring_layout(G, k=0.8, seed=42)
-        except Exception:
-            pos = nx.random_layout(G)
+            G = nx.DiGraph()
+            color_map = {
+                'Root': '#93c5fd',      # Softer Pastel Blue (for black text contrast)
+                'Primary': '#fca5a5',   # Softer Pastel Red
+                'Secondary': '#fed7aa'  # Softer Pastel Orange
+            }
             
-        nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=1500, edgecolors='#475569', linewidths=1)
-        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, arrowsize=15, edge_color='#94a3b8', width=1.5)
-        nx.draw_networkx_labels(G, pos, labels=labels, font_size=8, font_color='#ffffff', font_weight='bold')
-        
-        legend_elements = [
-            plt.Line2D([0], [0], marker='o', color='w', label='Root / Launcher', markerfacecolor='#3b82f6', markersize=10),
-            plt.Line2D([0], [0], marker='o', color='w', label='Primary Malware', markerfacecolor='#ef4444', markersize=10),
-            plt.Line2D([0], [0], marker='o', color='w', label='Secondary Payload', markerfacecolor='#f97316', markersize=10),
-        ]
-        plt.legend(
-            handles=legend_elements, 
-            loc='lower center', 
-            ncol=3, 
-            frameon=True, 
-            facecolor='#1e293b', 
-            edgecolor='#475569', 
-            labelcolor='white'
-        )
-        
-        plt.title("Detonation Process Spawn Tree", fontsize=12, color='white', pad=15)
-        plt.gcf().patch.set_facecolor('#0f172a')
-        plt.gca().set_facecolor('#0f172a')
-        plt.axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(output_image_path, facecolor='#0f172a', edgecolor='none', dpi=300)
-        plt.close()
-        return True
+            labels = {}
+            # Add nodes and properties
+            for proc in processes:
+                G.add_node(proc.pid, classification=proc.classification, name=proc.name)
+                # Truncate long process names (e.g. SHA256 hashes) to make tree cleaner
+                display_name = proc.name
+                base, ext = os.path.splitext(proc.name)
+                if len(base) > 16:
+                    display_name = f"{base[:8]}...{base[-4:]}{ext}"
+                labels[proc.pid] = f"{display_name}\n({proc.pid})"
+                
+            # Add edges only if parent node exists
+            for proc in processes:
+                if proc.ppid and G.has_node(proc.ppid):
+                    G.add_edge(proc.ppid, proc.pid)
+
+            # Separate into weakly connected components to prevent overlaps
+            components = list(nx.weakly_connected_components(G))
+            pos = {}
+            current_x_offset = 0.0
+            x_padding = 2.0  # Safe distance between components
+            
+            for comp in components:
+                subG = G.subgraph(comp)
+                
+                # Try to use Graphviz layout (pydot or pygraphviz) first
+                pos_sub = None
+                try:
+                    from networkx.drawing.nx_agraph import graphviz_layout
+                    pos_sub = graphviz_layout(subG, prog='dot')
+                except Exception:
+                    try:
+                        from networkx.drawing.nx_pydot import graphviz_layout
+                        pos_sub = graphviz_layout(subG, prog='dot')
+                    except Exception:
+                        pass
+                
+                # Fall back to custom non-overlapping recursive layout
+                if not pos_sub:
+                    pos_sub = GraphGenerator.compute_hierarchical_layout(subG)
+
+                # Find coordinates min/max of current sub-layout
+                xs = [coords[0] for coords in pos_sub.values()]
+                min_x = min(xs) if xs else 0.0
+                
+                # Offset and assign sub-layout to G's layout
+                for node, (x, y) in pos_sub.items():
+                    pos[node] = (current_x_offset + (x - min_x), y)
+                    
+                xs_shifted = [pos[node][0] for node in comp]
+                max_x_shifted = max(xs_shifted) if xs_shifted else current_x_offset
+                current_x_offset = max_x_shifted + x_padding
+
+            # Calculate dynamic figure size based on coordinate bounds
+            all_xs = [coords[0] for coords in pos.values()]
+            all_ys = [coords[1] for coords in pos.values()]
+            
+            min_x, max_x = min(all_xs) if all_xs else 0.0, max(all_xs) if all_xs else 10.0
+            min_y, max_y = min(all_ys) if all_ys else -5.0, max(all_ys) if all_ys else 0.0
+            
+            range_x = max_x - min_x
+            range_y = max_y - min_y
+            
+            # Matplotlib figure size: scale horizontally and vertically
+            fig_width = max(10.0, range_x * 1.8)
+            fig_height = max(6.0, range_y * 1.5)
+            
+            # Bound the size to prevent excessively large canvas sizes
+            fig_width = min(fig_width, 40.0)
+            fig_height = min(fig_height, 25.0)
+
+            # Render
+            plt.figure(figsize=(fig_width, fig_height))
+            ax = plt.gca()
+            ax.margins(0.15)  # Pad boundaries to keep labels from being cut off
+            
+            node_colors = []
+            for node in G.nodes():
+                classification = G.nodes[node].get('classification', 'Secondary')
+                node_colors.append(color_map.get(classification, '#b2bec3'))
+
+            nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=1500, edgecolors='#1e293b', linewidths=1.2)
+            nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, arrowsize=15, edge_color='#475569', width=1.5)
+            # Label font color set to black (#000000) for visibility
+            nx.draw_networkx_labels(G, pos, labels=labels, font_size=8, font_color='#000000', font_weight='bold')
+            
+            # Stylized custom legend for node color codes
+            legend_elements = [
+                plt.Line2D([0], [0], marker='o', color='w', label='Root / Launcher (explorer)', markerfacecolor='#93c5fd', markeredgecolor='#1e293b', markersize=10),
+                plt.Line2D([0], [0], marker='o', color='w', label='Primary Malware Process', markerfacecolor='#fca5a5', markeredgecolor='#1e293b', markersize=10),
+                plt.Line2D([0], [0], marker='o', color='w', label='Secondary Payload Process', markerfacecolor='#fed7aa', markeredgecolor='#1e293b', markersize=10),
+            ]
+            plt.legend(
+                handles=legend_elements, 
+                loc='lower center', 
+                ncol=3, 
+                frameon=True, 
+                facecolor='#ffffff', 
+                edgecolor='#cbd5e1', 
+                labelcolor='#1e293b',
+                fontsize=8
+            )
+            
+            plt.title("Detonation Process Spawn Tree", fontsize=12, color='#1e3a8a', pad=15, fontweight='bold')
+            plt.gcf().patch.set_facecolor('#cbd5e1')
+            plt.gca().set_facecolor('#cbd5e1')
+            plt.axis('off')
+            
+            plt.tight_layout()
+            plt.savefig(output_image_path, facecolor='#cbd5e1', edgecolor='none', dpi=300)
+            plt.close()
+            return True
+            
+        except Exception as exc:
+            print(f"[!] Detonation process tree visualization failed: {exc}")
+            return False
+
+
+class ProcessTreeVisualizer:
+    """Backward-compatible shim forwarding to GraphGenerator."""
+    @staticmethod
+    def generate_graph(processes: List[ProcessNode], output_image_path: str) -> bool:
+        return GraphGenerator.generate_process_tree_graph(processes, output_image_path)
 
 
 class ResourceVisualizer:
+    """Backward-compatible shim forwarding to GraphGenerator."""
     @staticmethod
-    def generate_cpu_graph(resource_series: List[dict], output_image_path: str):
-        if not HAS_VISUALIZATION:
-            print("[!] Visualization libraries are not installed. Skipping CPU graph generation.")
-            return False
-        if not resource_series:
-            return False
-            
-        timestamps = [r.get("elapsed_seconds", 0) for r in resource_series]
-        cpu_percents = [r.get("cpu_percent", 0.0) for r in resource_series]
-        
-        plt.figure(figsize=(10, 4))
-        plt.plot(timestamps, cpu_percents, color='#ef4444', linewidth=2, label='CPU Usage (%)')
-        plt.fill_between(timestamps, cpu_percents, color='#ef4444', alpha=0.2)
-        
-        plt.title("CPU Utilization Profile", fontsize=12, color='white', pad=15)
-        plt.xlabel("Elapsed Time (seconds)", fontsize=9, color='#94a3b8')
-        plt.ylabel("CPU Usage (%)", fontsize=9, color='#94a3b8')
-        
-        plt.gcf().patch.set_facecolor('#0f172a')
-        plt.gca().set_facecolor('#0f172a')
-        
-        # Style grid & ticks
-        plt.grid(True, color='#334155', linestyle='--', linewidth=0.5)
-        plt.tick_params(colors='#94a3b8', labelsize=8)
-        
-        # Remove top/right spines
-        for spine in plt.gca().spines.values():
-            spine.set_color('#334155')
-            
-        plt.tight_layout()
-        plt.savefig(output_image_path, facecolor='#0f172a', edgecolor='none', dpi=300)
-        plt.close()
-        return True
+    def generate_cpu_graph(resource_series: List[dict], output_image_path: str) -> bool:
+        return GraphGenerator.generate_cpu_graph(resource_series, output_image_path)
 
 
 class MalwareSandboxAnalyzer:
@@ -293,10 +529,17 @@ class MalwareSandboxAnalyzer:
         if parent_pid and parent_pid in nodes:
             root_node = nodes[parent_pid]
         else:
+            fallback_name = os.path.basename(self.target_binary) if parent_pid == self.target_pid else "explorer.exe"
+            fallback_cmd = self.target_binary if parent_pid == self.target_pid else "explorer.exe"
+            for p in self.process_tree_flat:
+                if p.get("pid") == parent_pid:
+                    fallback_name = p.get("process_name", fallback_name)
+                    fallback_cmd = p.get("command_line", fallback_cmd)
+                    break
             root_node = {
                 "pid": parent_pid,
-                "process_name": os.path.basename(self.target_binary),
-                "command_line": self.target_binary,
+                "process_name": fallback_name,
+                "command_line": fallback_cmd,
                 "children": []
             }
             if parent_pid:
@@ -530,11 +773,8 @@ class MalwareSandboxAnalyzer:
     # ==========================================
     def _read_serial_pipe(self, pipe_path):
         self._log(f"[*] Connecting to serial telemetry pipe '{pipe_path}'...")
-        start_time = time.time()
 
-        while self.is_running and (
-            time.time() - start_time < self.duration_seconds + 30
-        ):
+        while self.is_running:
             pipe_fd = None
             try:
                 # Open pipe with read-only binary mode
@@ -1368,16 +1608,56 @@ class MalwareSandboxAnalyzer:
                     ],
                     check=True,
                     capture_output=True,
+                    timeout=60,
                 )
 
-                # 2. Start VM
-                self._log("[*] Starting guest VM sandbox...")
-                subprocess.run(
-                    [vmrun_path, "-T", "ws", "start", vmx_path, "gui"],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                # Let VIX API register the restored powered-on state
+                time.sleep(30)
+
+                # 2. Start VM (only if not already running)
+                self._log("[*] Checking if guest VM sandbox is already running...")
+                vm_already_running = False
+                try:
+                    list_check = subprocess.run(
+                        [vmrun_path, "-T", "ws", "list"],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    if list_check.returncode == 0:
+                        norm_vmx = os.path.abspath(os.path.normpath(vmx_path)).lower()
+                        for line in list_check.stdout.splitlines():
+                            clean_line = line.strip()
+                            if clean_line:
+                                try:
+                                    norm_line = os.path.abspath(os.path.normpath(clean_line)).lower()
+                                    if norm_vmx == norm_line or norm_vmx in norm_line:
+                                        vm_already_running = True
+                                        break
+                                except Exception:
+                                    if norm_vmx in clean_line.lower():
+                                        vm_already_running = True
+                                        break
+                except Exception as list_err:
+                    self._log(f"[!] Warning: Failed to check running VMs: {list_err}")
+
+                if vm_already_running:
+                    self._log("[+] Guest VM is already running. Skipping startup command.")
+                else:
+                    self._log("[*] Starting guest VM sandbox in GUI mode...")
+                    try:
+                        subprocess.run(
+                            [vmrun_path, "-T", "ws", "start", vmx_path, "gui"],
+                            check=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=60,
+                        )
+                    except subprocess.CalledProcessError as e:
+                        if e.returncode in (-1, 4294967295):
+                            self._log("[+] Guest VM is already running. Proceeding.")
+                        else:
+                            raise e
 
                 # 3. Wait for VMware Tools to initialize
                 self._log(
@@ -1387,17 +1667,23 @@ class MalwareSandboxAnalyzer:
                 for attempt in range(60):
                     if self.cancelled:
                         break
-                    res = subprocess.run(
-                        [vmrun_path, "-T", "ws", "checkToolsState", vmx_path],
-                        capture_output=True,
-                        text=True,
-                    )
-                    if "running" in res.stdout.lower() and res.returncode == 0:
-                        tools_running = True
-                        self._log(
-                            "[+] VMware Tools is running. Proceeding with analysis."
+                    try:
+                        res = subprocess.run(
+                            [vmrun_path, "-T", "ws", "checkToolsState", vmx_path],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
                         )
-                        break
+                        if "running" in res.stdout.lower() and res.returncode == 0:
+                            tools_running = True
+                            self._log(
+                                "[+] VMware Tools is running. Proceeding with analysis."
+                            )
+                            break
+                    except subprocess.TimeoutExpired:
+                        pass
+                    except Exception:
+                        pass
                     time.sleep(1)
 
                 if self.cancelled:
@@ -1407,6 +1693,34 @@ class MalwareSandboxAnalyzer:
                     raise RuntimeError(
                         "VMware Tools failed to initialize within 60 seconds."
                     )
+
+                # 3a. Clean up any existing agent/python processes on the guest first
+                self._log("[*] Cleaning up any stale agent or python processes on guest VM...")
+                for proc_name in ["python.exe", "cmd.exe", "FakeNet.exe", "procmon.exe", "procmon64.exe"]:
+                    try:
+                        subprocess.run(
+                            [
+                                vmrun_path,
+                                "-T",
+                                "ws",
+                                "-gu",
+                                guest_user,
+                                "-gp",
+                                guest_pass,
+                                "runProgramInGuest",
+                                vmx_path,
+                                "-noWait",
+                                "C:\\Windows\\System32\\taskkill.exe",
+                                "/F",
+                                "/IM",
+                                proc_name,
+                            ],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=10,
+                        )
+                    except Exception as err:
+                        self._log(f"[!] Warning: Failed to kill process {proc_name} on guest: {err}")
 
                 # 3b. Initialize FakeNet inside guest VM sandbox
                 if self.cancelled:
@@ -1432,7 +1746,8 @@ class MalwareSandboxAnalyzer:
                             fakenet_run
                         ],
                         check=True,
-                        capture_output=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                         timeout=30,
                     )
                     self._log("[+] FakeNet initialized successfully inside guest VM.")
@@ -1514,11 +1829,10 @@ class MalwareSandboxAnalyzer:
                 self._log("[+] Python interpreter confirmed on guest VM.")
 
                 # 5c. Install required agent dependencies on guest (silent, best-effort)
-                self._log(
-                    "[*] Installing agent dependencies on guest VM (pyserial, psutil, watchdog, pywin32, wmi)..."
-                )
+                self._log("[*] Checking guest VM agent dependencies...")
+                dep_satisfied = False
                 try:
-                    subprocess.run(
+                    dep_check = subprocess.run(
                         [
                             vmrun_path,
                             "-T",
@@ -1529,33 +1843,67 @@ class MalwareSandboxAnalyzer:
                             guest_pass,
                             "runProgramInGuest",
                             vmx_path,
-                            "-activeWindow",
                             guest_python,
-                            "-m",
-                            "pip",
-                            "install",
-                            "--quiet",
-                            "--no-warn-script-location",
-                            "pyserial",
-                            "psutil",
-                            "watchdog",
-                            "pywin32",
-                            "wmi",
+                            "-c",
+                            "import serial, psutil, watchdog, win32api, wmi",
                         ],
                         capture_output=True,
-                        timeout=120,
+                        timeout=10,
                     )
+                    if dep_check.returncode == 0:
+                        dep_satisfied = True
+                except Exception as check_err:
+                    self._log(f"[-] Dependency pre-check failed or timed out: {check_err}. Falling back to offline installation.")
+
+                if dep_satisfied:
+                    self._log("[+] All guest VM dependencies are already satisfied. Skipping pip installation.")
+                else:
                     self._log(
-                        "[+] Guest agent dependency installation complete (or already satisfied)."
+                        "[*] Installing agent dependencies on guest VM offline from local wheels (pyserial, psutil, watchdog, pywin32, wmi)..."
                     )
-                except subprocess.TimeoutExpired:
-                    self._log(
-                        "[-] Dependency install timed out. Proceeding — packages may already be installed in snapshot."
-                    )
-                except Exception as dep_err:
-                    self._log(
-                        f"[-] Dependency install failed: {dep_err}. Proceeding anyway."
-                    )
+                    try:
+                        subprocess.run(
+                            [
+                                vmrun_path,
+                                "-T",
+                                "ws",
+                                "-gu",
+                                guest_user,
+                                "-gp",
+                                guest_pass,
+                                "runProgramInGuest",
+                                vmx_path,
+                                "-activeWindow",
+                                guest_python,
+                                "-m",
+                                "pip",
+                                "install",
+                                "--no-index",
+                                f"--find-links=C:\\Users\\{guest_user}\\Desktop\\wheels",
+                                f"--find-links=C:\\Users\\{guest_user}\\Desktop\\wheel",
+                                f"--find-links=C:\\Users\\{guest_user}\\Desktop\\guest_wheels",
+                                "--quiet",
+                                "--no-warn-script-location",
+                                "pyserial",
+                                "psutil",
+                                "watchdog",
+                                "pywin32",
+                                "wmi",
+                            ],
+                            capture_output=True,
+                            timeout=60,
+                        )
+                        self._log(
+                            "[+] Guest agent dependency installation complete."
+                        )
+                    except subprocess.TimeoutExpired:
+                        self._log(
+                            "[-] Dependency install timed out. Proceeding — packages may already be installed in snapshot."
+                        )
+                    except Exception as dep_err:
+                        self._log(
+                            f"[-] Dependency install failed: {dep_err}. Proceeding anyway."
+                        )
 
                 # 6. Start the serial pipe reader thread on the host
                 pipe_thread = threading.Thread(
@@ -1568,6 +1916,10 @@ class MalwareSandboxAnalyzer:
                 self._log("[+] Detonating malware sample inside guest VM sandbox by starting agent...")
 
                 try:
+                    # The user-selected duration IS the agent analysis window.
+                    # Pass it directly — no mapping needed.
+                    guest_timeout = int(self.duration_seconds)
+
                     subprocess.run(
                         [
                             vmrun_path,
@@ -1580,21 +1932,22 @@ class MalwareSandboxAnalyzer:
                             "runProgramInGuest",
                             vmx_path,
                             "-noWait",
+                            "-interactive",
                             "-activeWindow",
                             guest_python,
                             "-u",
                             guest_agent,
+                            "--timeout",
+                            str(guest_timeout),
                         ],
                         check=True,
-                        capture_output=True,
-                        text=True # Ensures the output is a string, not bytes
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                     )
                     self._log("[+] Agent execution command successfully sent to VM.")
 
                 except subprocess.CalledProcessError as e:
-                    self._log(f"[-] CRITICAL ERROR: vmrun failed to execute the agent.")
-                    self._log(f"[-] Exit Code: {e.returncode}")
-                    self._log(f"[-] vmrun Output: {e.stderr.strip()}")
+                    self._log(f"[-] CRITICAL ERROR: vmrun failed to execute the agent. Exit Code: {e.returncode}")
 
                 self.is_simulation = False
             else:
@@ -1629,7 +1982,7 @@ class MalwareSandboxAnalyzer:
             resource_thread.start()
 
         self._log(
-            f"[*] Monitoring behavior active for execution window duration ({self.duration_seconds}s)..."
+            f"[*] Monitoring behavior — waiting for agent teardown (analysis window: {self.duration_seconds}s)..."
         )
         if self.is_simulation:
             for _ in range(int(self.duration_seconds)):
@@ -1637,14 +1990,17 @@ class MalwareSandboxAnalyzer:
                     break
                 time.sleep(1)
         else:
-            # Poll for guest completion with a safe timeout to allow post-processing
+            # The host has NO independent timer. It waits until the guest agent
+            # signals COMPLETE (after analysis window + ProcMon export + CSV parsing).
+            # The serial pipe reader stays open throughout.
+            # Safety cap of 3600s (1 hour) prevents infinite hangs.
             start_monitor = time.time()
-            max_wait = self.duration_seconds + 30
+            max_wait = 3600
             while self.is_running and (time.time() - start_monitor < max_wait):
                 if self.cancelled:
                     break
                 if getattr(self, "guest_completed", False):
-                    self._log("[+] Guest agent reported analysis complete.")
+                    self._log("[+] Guest agent reported analysis complete. Proceeding to teardown...")
                     break
                 time.sleep(1)
 
@@ -1676,27 +2032,31 @@ class MalwareSandboxAnalyzer:
                     "[*] Terminating guest agent processes to release log write locks..."
                 )
                 for proc_name in ["python.exe", "cmd.exe", "FakeNet.exe"]:
-                    subprocess.run(
-                        [
-                            vmrun_path,
-                            "-T",
-                            "ws",
-                            "-gu",
-                            guest_user,
-                            "-gp",
-                            guest_pass,
-                            "runProgramInGuest",
-                            vmx_path,
-                            "-noWait",
-                            "-activeWindow",
-                            "C:\\Windows\\System32\\taskkill.exe",
-                            "/F",
-                            "/IM",
-                            proc_name,
-                        ],
-                        capture_output=True,
-                        timeout=15,
-                    )
+                    try:
+                        subprocess.run(
+                            [
+                                vmrun_path,
+                                "-T",
+                                "ws",
+                                "-gu",
+                                guest_user,
+                                "-gp",
+                                guest_pass,
+                                "runProgramInGuest",
+                                vmx_path,
+                                "-noWait",
+                                "-activeWindow",
+                                "C:\\Windows\\System32\\taskkill.exe",
+                                "/F",
+                                "/IM",
+                                proc_name,
+                            ],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=10,
+                        )
+                    except Exception as err:
+                        self._log(f"[!] Warning: Failed to kill process {proc_name} on guest: {err}")
 
                 # Allow file system handles to fully release
                 time.sleep(3)
@@ -2191,11 +2551,19 @@ class MalwareSandboxAnalyzer:
         # Run Phase 3 telemetry diffing & noise reduction classification
         high_conf, low_conf = self._classify_persistence_entries()
 
+        launcher_name = "explorer.exe"
+        launcher_cmd = "explorer.exe"
+        for p in self.process_tree_flat:
+            if p.get("pid") == target_ppid:
+                launcher_name = p.get("process_name", "explorer.exe")
+                launcher_cmd = p.get("command_line", "explorer.exe")
+                break
+
         main_process_entry = {
-            "pid": self.target_pid,
-            "process_name": os.path.basename(self.target_binary),
-            "command_line": self.target_binary,
-            "children": self._build_nested_tree(self.target_pid),
+            "pid": target_ppid,
+            "process_name": launcher_name,
+            "command_line": launcher_cmd,
+            "children": self._build_nested_tree(target_ppid),
         }
 
         report = {
@@ -2263,18 +2631,19 @@ class DynamicController:
         self.is_analyzing = False
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
 
-    def run_sandbox_analysis(self, target_exe_path):
+    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None):
         """Orchestrates dynamic analysis using MalwareSandboxAnalyzer."""
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
 
+        timeout = duration_seconds if duration_seconds is not None else self.timeout
         pub.sendMessage(
-            "gui.log", msg="[+] Detonating sample in local MalwareSandboxAnalyzer..."
+            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds..."
         )
 
         analyzer = MalwareSandboxAnalyzer(
             target_binary=target_exe_path,
-            duration_seconds=self.timeout,
+            duration_seconds=timeout,
             config=self.config,
         )
         analyzer.execute_analysis()

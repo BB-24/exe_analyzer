@@ -6,27 +6,208 @@ import os
 import re
 import datetime
 import json
+from typing import List, Dict, Any, Optional, Tuple, Set, Union
 from pubsub import pub
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Flowable, Image, KeepTogether
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    PageBreak,
+    Flowable,
+    Image,
+    KeepTogether,
+    LongTable
+)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DATA CLEANER & UTILITIES
+# ═══════════════════════════════════════════════════════════════════════════
+class DataCleaner:
+    """
+    Utility class for data sanitization, formatting, and analysis.
+    """
+
+    @staticmethod
+    def safe_text(v: Any) -> str:
+        """Sanitizes text to ensure compatibility with latin-1 encoding."""
+        return str(v).encode("latin-1", "replace").decode("latin-1")
+
+    @staticmethod
+    def clean_hash(v: str) -> str:
+        """Cleans and standardizes hash strings to avoid duplicates or overflow."""
+        if not isinstance(v, str):
+            v = str(v)
+        v = v.strip()
+        half = len(v) // 2
+        if half >= 32 and v[:half] == v[half:]:
+            v = v[:half]
+        if len(v) > 64:
+            v = v[:64]
+        return v
+
+    @staticmethod
+    def is_hash_key(key: str) -> bool:
+        """Determines if a key represents a hash value based on naming heuristics."""
+        if not isinstance(key, str):
+            return False
+        k = key.upper()
+        return any(tok in k for tok in ("SHA", "MD5", "HASH"))
+
+    @staticmethod
+    def resolve_filename(meta: dict) -> str:
+        """Resolves the standard target filename from metadata entries."""
+        for key in ("Original File Name", "Filename", "filename"):
+            v = str(meta.get(key) or "").strip()
+            if v and v not in ("N/A", "?", ""):
+                return v
+        return "Unknown Sample"
+
+    @staticmethod
+    def clean_strings(str_list: List[Any], category: str) -> List[str]:
+        """Cleans and filters strings based on heuristic patterns (e.g., URLs, domains, IPs)."""
+        cleaned: List[str] = []
+        for raw_s in str_list:
+            s = str(raw_s).strip()
+            if not s or len(s) < 4:
+                continue
+            s_lower = s.lower()
+            if category == "urls":
+                if s_lower.startswith(("http://", "https://")):
+                    cleaned.append(s)
+            elif category == "domains":
+                if s_lower.endswith((".dll", ".exe", ".sys", ".drv", ".ocx", ".manifest", ".ini", ".lnk")):
+                    continue
+                if "." in s and not s.startswith(".") and not s.endswith("."):
+                    cleaned.append(s)
+            elif category == "ips":
+                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', s) or ":" in s:
+                    cleaned.append(s)
+            elif category == "registry":
+                if s_lower.startswith(("hklm", "hkcu", "hkey_")):
+                    cleaned.append(s)
+        return sorted(list(set(cleaned)))[:10]
+
+    @staticmethod
+    def format_size(size_bytes: Any) -> str:
+        """Formats file size in bytes to a human-readable string representation."""
+        if not size_bytes:
+            return "0 Bytes"
+        try:
+            val = float(size_bytes)
+        except Exception:
+            return str(size_bytes)
+        for unit in ['Bytes', 'KB', 'MB', 'GB']:
+            if val < 1024.0:
+                return f"{val:.2f} {unit}"
+            val /= 1024.0
+        return f"{val:.2f} TB"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TABLE FORMATTING & PAGINATION UTILITIES
+# ═══════════════════════════════════════════════════════════════════════════
+class TableFormatter:
+    """
+    Format and structure data tables for ReportLab flow.
+    Handles cell wrapping, paragraph conversion, styling, and multi-page splits.
+    """
+
+    @staticmethod
+    def wrap_cell_data(
+        data: List[List[Any]],
+        default_style: ParagraphStyle,
+        bold_first_row: bool = False,
+        bold_style: Optional[ParagraphStyle] = None,
+        code_cols: Optional[List[int]] = None,
+        code_style: Optional[ParagraphStyle] = None
+    ) -> List[List[Any]]:
+        """
+        Ensures all text elements in a 2D array are flowables (Paragraph) so they wrap
+        properly and do not cause truncation or bad split issues across page breaks.
+        """
+        wrapped_data = []
+        for r_idx, row in enumerate(data):
+            wrapped_row = []
+            for c_idx, cell in enumerate(row):
+                if isinstance(cell, (Paragraph, Image, KeepTogether, Flowable)):
+                    wrapped_row.append(cell)
+                elif cell is None:
+                    wrapped_row.append(Paragraph("N/A", default_style))
+                else:
+                    cell_str = str(cell)
+                    style = default_style
+                    
+                    if r_idx == 0 and bold_first_row:
+                        style = bold_style or default_style
+                        if not cell_str.startswith("<b>"):
+                            cell_str = f"<b>{cell_str}</b>"
+                    elif code_cols and c_idx in code_cols:
+                        style = code_style or default_style
+                    
+                    wrapped_row.append(Paragraph(cell_str, style))
+            wrapped_data.append(wrapped_row)
+        return wrapped_data
+
+    @staticmethod
+    def build_table(
+        data: List[List[Any]],
+        col_widths: List[float],
+        bg_color: Optional[colors.Color] = None,
+        border_color: Optional[colors.Color] = None,
+        is_long: bool = True,
+        repeat_rows: int = 1,
+        valign: str = 'TOP',
+        header_bg: Optional[colors.Color] = None,
+        padding: int = 6
+    ) -> Table:
+        """
+        Creates a styled Table or LongTable with explicit styles and repeating headers.
+        """
+        table_cls = LongTable if is_long else Table
+        t = table_cls(data, colWidths=col_widths, repeatRows=repeat_rows)
+        
+        tbl_styles = [
+            ('PADDING', (0, 0), (-1, -1), padding),
+            ('VALIGN', (0, 0), (-1, -1), valign),
+        ]
+        
+        if border_color:
+            tbl_styles.append(('GRID', (0, 0), (-1, -1), 0.5, border_color))
+            
+        if bg_color:
+            tbl_styles.append(('BACKGROUND', (0, 0), (-1, -1), bg_color))
+            
+        if header_bg:
+            tbl_styles.append(('BACKGROUND', (0, 0), (-1, repeat_rows - 1), header_bg))
+            
+        t.setStyle(TableStyle(tbl_styles))
+        return t
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # NUMBERED CANVAS (matching pdf_generator.py)
 # ═══════════════════════════════════════════════════════════════════════════
 class NumberedCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
+    """
+    Two-pass canvas implementation to determine total pages and print dynamic
+    headers and footers ("Page X of Y") on all pages except the cover page.
+    """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._saved_page_states = []
+        self._saved_page_states: List[Dict[str, Any]] = []
 
-    def showPage(self):
+    def showPage(self) -> None:
         self._saved_page_states.append(dict(self.__dict__))
         self._startPage()
 
-    def save(self):
+    def save(self) -> None:
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
@@ -34,7 +215,7 @@ class NumberedCanvas(canvas.Canvas):
             super().showPage()
         super().save()
 
-    def draw_page_elements(self, page_count):
+    def draw_page_elements(self, page_count: int) -> None:
         # Cover page (Page 1) does not get header or footer
         if self._pageNumber == 1:
             return
@@ -63,73 +244,28 @@ class NumberedCanvas(canvas.Canvas):
 
 
 class HeadingTracker(Flowable):
-    def __init__(self, key, title_dict):
+    """
+    Custom Flowable to track heading page numbers during the dry-run PDF build phase.
+    """
+    def __init__(self, key: str, title_dict: Dict[str, int]) -> None:
         super().__init__()
         self.key = key
         self.title_dict = title_dict
         
-    def draw(self):
+    def draw(self) -> None:
         self.title_dict[self.key] = self.canv._pageNumber
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# HELPER FUNCTIONS
+# PDF REPORT BUILDER
 # ═══════════════════════════════════════════════════════════════════════════
-def _safe(v) -> str:
-    return str(v).encode("latin-1", "replace").decode("latin-1")
+class PDFReportBuilder:
+    """
+    Modern PDF report orchestrator using ReportLab.
+    Manages document schemas, page styles, flowables, dynamic footer counting, and TOC.
+    """
 
-
-def _clean_hash(v: str) -> str:
-    v = v.strip()
-    half = len(v) // 2
-    if half >= 32 and v[:half] == v[half:]:
-        v = v[:half]
-    if len(v) > 64:
-        v = v[:64]
-    return v
-
-
-def _is_hash_key(key: str) -> bool:
-    k = key.upper()
-    return any(tok in k for tok in ("SHA", "MD5", "HASH"))
-
-
-def _resolve_filename(meta: dict) -> str:
-    for key in ("Original File Name", "Filename", "filename"):
-        v = str(meta.get(key) or "").strip()
-        if v and v not in ("N/A", "?", ""):
-            return v
-    return "Unknown Sample"
-
-
-def clean_strings(str_list, category):
-    cleaned = []
-    for s in str_list:
-        s = str(s).strip()
-        if not s or len(s) < 4:
-            continue
-        if category == "urls":
-            if s.lower().startswith(("http://", "https://")):
-                cleaned.append(s)
-        elif category == "domains":
-            if s.lower().endswith((".dll", ".exe", ".sys", ".drv", ".ocx", ".manifest", ".ini", ".lnk")):
-                continue
-            if "." in s and not s.startswith(".") and not s.endswith("."):
-                cleaned.append(s)
-        elif category == "ips":
-            if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', s) or ":" in s:
-                cleaned.append(s)
-        elif category == "registry":
-            if s.upper().startswith(("HKLM", "HKCU", "HKEY_")):
-                cleaned.append(s)
-    return sorted(list(set(cleaned)))[:10]
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# REPORT GENERATOR
-# ═══════════════════════════════════════════════════════════════════════════
-class ReportGenerator:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict) -> None:
         self.reports_dir = config.get("system", {}).get("reports_dir", "./workspace/reports")
         os.makedirs(self.reports_dir, exist_ok=True)
         
@@ -151,28 +287,16 @@ class ReportGenerator:
         self.h2_style = ParagraphStyle('ReportH2', fontName='Helvetica-Bold', fontSize=11, leading=15, textColor=self.secondary_color, spaceBefore=8, spaceAfter=4, keepWithNext=True)
         self.bullet_style = ParagraphStyle('ReportBullet', parent=self.normal, leftIndent=15, bulletIndent=5, spaceAfter=3)
 
-    def format_size(self, size_bytes):
-        if not size_bytes:
-            return "0 Bytes"
-        try:
-            size_bytes = float(size_bytes)
-        except Exception:
-            return str(size_bytes)
-        for unit in ['Bytes', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.2f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.2f} TB"
-
     def generate_reports(
         self,
-        metadata:        dict,
-        package_data:    list,
-        static_data:     dict,
-        dynamic_data:    dict | None = None,
-        dynamic_summary: dict | None = None,
-        scoring_results: dict | None = None,
-    ):
+        metadata: dict,
+        package_data: list,
+        static_data: dict,
+        dynamic_data: Optional[dict] = None,
+        dynamic_summary: Optional[dict] = None,
+        scoring_results: Optional[dict] = None,
+    ) -> None:
+        """Main entry point to serialize data and generate JSON and PDF reports."""
         pub.sendMessage("gui.log", msg="\n[*] --- Starting Reporting Module ---")
         analysis_id = metadata.get("Analysis ID", f"MARS_UNKNOWN_{datetime.datetime.now().strftime('%H%M%S')}")
         base = os.path.join(self.reports_dir, f"{analysis_id}_Report")
@@ -201,9 +325,9 @@ class ReportGenerator:
         except Exception as exc:
             pub.sendMessage("gui.log", msg=f"  [!] PDF generation failed (proceeding with JSON report): {exc}")
 
-    def _build_pdf(self, data: dict, path: str, *, scoring_results: dict | None = None):
-        # Two-pass build to build the table of contents page map
-        page_map = {}
+    def _build_pdf(self, data: dict, path: str, *, scoring_results: Optional[dict] = None) -> None:
+        """Runs a two-pass layout compiler to establish exact table of contents pages."""
+        page_map: Dict[str, int] = {}
         
         # Pass 1: Dry run
         story_dry = self.build_story_flow(data, page_map)
@@ -216,13 +340,23 @@ class ReportGenerator:
         doc_real.build(story_real, canvasmaker=NumberedCanvas)
 
     def build_story_flow(self, data: dict, page_map: dict) -> list:
+        """Assembles the Flowables hierarchy list for the PDF rendering pipeline."""
         story = []
+
+        def get_divider():
+            t = Table([['']], colWidths=[504], rowHeights=[1])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#cbd5e1')),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+            return t
         meta = data.get("Analysis_Summary", {})
-        filename = _resolve_filename(meta)
+        filename = DataCleaner.resolve_filename(meta)
         
         # Extract basic info
         file_size_bytes = meta.get("File Size (Bytes)", 0)
-        sha256_val = _clean_hash(str(meta.get("SHA256", "N/A")))
+        sha256_val = DataCleaner.clean_hash(str(meta.get("SHA256", "N/A")))
         
         verdict = "CLEAN"
         score = 0.0
@@ -255,19 +389,22 @@ class ReportGenerator:
             [Paragraph("<b>Sample Name</b>", self.normal_bold), Paragraph(filename, self.normal)],
             [Paragraph("<b>File Type</b>", self.normal_bold), Paragraph(meta.get("MIME/Format Guess", "application/x-dosexec"), self.normal)],
             [Paragraph("<b>Magic Bytes (Hex)</b>", self.normal_bold), Paragraph(meta.get("Magic Bytes (Hex)", "N/A"), self.normal)],
-            [Paragraph("<b>File Size</b>", self.normal_bold), Paragraph(self.format_size(file_size_bytes), self.normal)],
+            [Paragraph("<b>File Size</b>", self.normal_bold), Paragraph(DataCleaner.format_size(file_size_bytes), self.normal)],
             [Paragraph("<b>SHA256</b>", self.normal_bold), Paragraph(sha256_val, self.code_style)],
             [Paragraph("<b>Final Verdict</b>", self.normal_bold), Paragraph(f"<font color='{verdict_color}'><b>{verdict}</b></font>", self.normal_bold)],
             [Paragraph("<b>Risk Score</b>", self.normal_bold), Paragraph(f"<b>{score * 10.0:.0f}/100</b>", self.normal_bold)]
         ]
 
-        cover_table = Table(cover_data, colWidths=[130, 374])
-        cover_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-            ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('PADDING', (0, 0), (-1, -1), 8),
-        ]))
+        cover_table = TableFormatter.build_table(
+            data=cover_data,
+            col_widths=[130, 374],
+            bg_color=self.bg_light,
+            border_color=self.border_color,
+            is_long=False,
+            repeat_rows=0,
+            valign='MIDDLE',
+            padding=8
+        )
         story.append(cover_table)
         story.append(PageBreak())
 
@@ -299,13 +436,16 @@ class ReportGenerator:
             [Paragraph("<b>Total YARA Matches</b>", self.normal_bold), Paragraph(str(yara_matches), self.normal)]
         ]
 
-        summary_table = Table(summary_table_data, colWidths=[150, 354])
-        summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-            ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-            ('PADDING', (0, 0), (-1, -1), 6),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
+        summary_table = TableFormatter.build_table(
+            data=summary_table_data,
+            col_widths=[150, 354],
+            bg_color=self.bg_light,
+            border_color=self.border_color,
+            is_long=False,
+            repeat_rows=0,
+            valign='MIDDLE',
+            padding=6
+        )
         story.append(summary_table)
         story.append(Spacer(1, 15))
         story.append(Paragraph("<b>Overall Assessment:</b>", self.h2_style))
@@ -331,16 +471,21 @@ class ReportGenerator:
                 Paragraph(page_num_str, ParagraphStyle('RightStyle', parent=self.normal, alignment=2))
             ])
 
-        toc_table = Table(toc_table_data, colWidths=[200, 260, 44])
-        toc_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
-            ('PADDING', (0, 0), (-1, -1), 4),
-        ]))
+        toc_table = TableFormatter.build_table(
+            data=toc_table_data,
+            col_widths=[200, 260, 44],
+            bg_color=None,
+            border_color=None,
+            is_long=False,
+            repeat_rows=0,
+            valign='BOTTOM',
+            padding=4
+        )
         story.append(toc_table)
         story.append(PageBreak())
 
         # ==================================================
-        # 3. STATIC ANALYSIS (SCHEMA-COMPLIANT)
+        # 3. STATIC ANALYSIS
         # ==================================================
         story.append(HeadingTracker("STATIC_ANALYSIS", page_map))
         story.append(Paragraph("2. Static Analysis", self.h1_style))
@@ -351,17 +496,21 @@ class ReportGenerator:
         # 1. Package Hashes
         story.append(Paragraph("Package Hashes", self.h2_style))
         hashes_tbl_data = [
-            [Paragraph("<b>MD5</b>", self.normal_bold), Paragraph(_clean_hash(str(meta.get("MD5", "N/A"))), self.code_style)],
-            [Paragraph("<b>SHA-1</b>", self.normal_bold), Paragraph(_clean_hash(str(meta.get("SHA1", "N/A"))), self.code_style)],
-            [Paragraph("<b>SHA-256</b>", self.normal_bold), Paragraph(_clean_hash(str(meta.get("SHA256", "N/A"))), self.code_style)],
-            [Paragraph("<b>SHA-512</b>", self.normal_bold), Paragraph(_clean_hash(str(meta.get("SHA512", "N/A"))), self.code_style)]
+            [Paragraph("<b>MD5</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("MD5", "N/A"))), self.code_style)],
+            [Paragraph("<b>SHA-1</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA1", "N/A"))), self.code_style)],
+            [Paragraph("<b>SHA-256</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA256", "N/A"))), self.code_style)],
+            [Paragraph("<b>SHA-512</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA512", "N/A"))), self.code_style)]
         ]
-        t_hashes = Table(hashes_tbl_data, colWidths=[120, 384])
-        t_hashes.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-            ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-            ('PADDING', (0, 0), (-1, -1), 6),
-        ]))
+        t_hashes = TableFormatter.build_table(
+            data=hashes_tbl_data,
+            col_widths=[120, 384],
+            bg_color=self.bg_light,
+            border_color=self.border_color,
+            is_long=False,
+            repeat_rows=0,
+            valign='TOP',
+            padding=6
+        )
         story.append(t_hashes)
         story.append(Spacer(1, 10))
 
@@ -372,13 +521,17 @@ class ReportGenerator:
             for item in package_ext:
                 rel_path = item.get("Relative_Path", "Unknown")
                 sha256 = item.get("SHA256", "N/A")
-                unzip_rows.append([Paragraph(rel_path, self.normal), Paragraph(_clean_hash(sha256), self.code_style)])
-            t_unzip = Table(unzip_rows, colWidths=[150, 354])
-            t_unzip.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                ('PADDING', (0, 0), (-1, -1), 6),
-            ]))
+                unzip_rows.append([Paragraph(rel_path, self.normal), Paragraph(DataCleaner.clean_hash(sha256), self.code_style)])
+            t_unzip = TableFormatter.build_table(
+                data=unzip_rows,
+                col_widths=[150, 354],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=0,
+                valign='TOP',
+                padding=6
+            )
             story.append(t_unzip)
         else:
             story.append(Paragraph("N/A - Not an archive/package file", self.normal))
@@ -392,7 +545,7 @@ class ReportGenerator:
                 if item.get("Is_Flagged") or str(item.get("Extension", "")).lower() in (".exe", ".dll", ".sys", ".drv"):
                     binaries.append(item.get("Relative_Path", "Unknown"))
         else:
-            fname = _resolve_filename(meta)
+            fname = DataCleaner.resolve_filename(meta)
             if fname and fname != "Unknown Sample":
                 binaries.append(fname)
         
@@ -408,7 +561,13 @@ class ReportGenerator:
             # Section Analysis
             story.append(Paragraph("Section Analysis (Permissions & Entropy)", self.h2_style))
             sections_data = file_data.get("Sections", {})
-            sect_rows = []
+            
+            sect_rows = [[
+                Paragraph("<b>Section Name</b>", self.normal_bold),
+                Paragraph("<b>Permissions</b>", self.normal_bold),
+                Paragraph("<b>Entropy</b>", self.normal_bold),
+            ]]
+            
             for sect_name, info in sections_data.items():
                 perms = "N/A"
                 entropy = "N/A"
@@ -424,13 +583,17 @@ class ReportGenerator:
                     Paragraph(perms, self.code_style),
                     Paragraph(entropy, self.code_style)
                 ])
-            if sect_rows:
-                t_sect = Table(sect_rows, colWidths=[150, 150, 204])
-                t_sect.setStyle(TableStyle([
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+            if len(sect_rows) > 1:
+                t_sect = TableFormatter.build_table(
+                    data=sect_rows,
+                    col_widths=[150, 150, 204],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_sect)
             else:
                 story.append(Paragraph("N/A - Section analysis not performed", self.normal))
@@ -441,12 +604,16 @@ class ReportGenerator:
             pe_headers_data = file_data.get("PE Headers", {})
             if pe_headers_data:
                 pe_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in pe_headers_data.items()]
-                t_pe = Table(pe_rows, colWidths=[200, 304])
-                t_pe.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_pe = TableFormatter.build_table(
+                    data=pe_rows,
+                    col_widths=[200, 304],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_pe)
             else:
                 story.append(Paragraph("N/A", self.normal))
@@ -457,12 +624,16 @@ class ReportGenerator:
             mit_data = file_data.get("Mitigations", {})
             if mit_data:
                 mit_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in mit_data.items()]
-                t_mit = Table(mit_rows, colWidths=[200, 304])
-                t_mit.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_mit = TableFormatter.build_table(
+                    data=mit_rows,
+                    col_widths=[200, 304],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_mit)
             else:
                 story.append(Paragraph("N/A", self.normal))
@@ -473,12 +644,16 @@ class ReportGenerator:
             imp_data = file_data.get("Suspicious Imports", {})
             if imp_data:
                 imp_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in imp_data.items()]
-                t_imp = Table(imp_rows, colWidths=[150, 354])
-                t_imp.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_imp = TableFormatter.build_table(
+                    data=imp_rows,
+                    col_widths=[150, 354],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_imp)
             else:
                 story.append(Paragraph("N/A", self.normal))
@@ -493,12 +668,16 @@ class ReportGenerator:
                     if k.lower() in ("email", "emails"):
                         continue
                     str_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)])
-                t_str = Table(str_rows, colWidths=[150, 354])
-                t_str.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_str = TableFormatter.build_table(
+                    data=str_rows,
+                    col_widths=[150, 354],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_str)
             else:
                 story.append(Paragraph("N/A", self.normal))
@@ -518,12 +697,16 @@ class ReportGenerator:
                     else:
                         v_str = str(v)
                     art_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(v_str, self.code_style)])
-                t_art = Table(art_rows, colWidths=[150, 354])
-                t_art.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_art = TableFormatter.build_table(
+                    data=art_rows,
+                    col_widths=[150, 354],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_art)
             else:
                 story.append(Paragraph("N/A", self.normal))
@@ -534,12 +717,16 @@ class ReportGenerator:
             yara_data = file_data.get("YARA Signatures", {})
             if yara_data:
                 yara_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in yara_data.items()]
-                t_yara = Table(yara_rows, colWidths=[150, 354])
-                t_yara.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_yara = TableFormatter.build_table(
+                    data=yara_rows,
+                    col_widths=[150, 354],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_yara)
             else:
                 story.append(Paragraph("N/A", self.normal))
@@ -558,12 +745,16 @@ class ReportGenerator:
                     [Paragraph("<b>XML Manifest Status</b>", self.normal_bold), Paragraph(manifest_status, self.normal)],
                     [Paragraph("<b>Requested Execution Level</b>", self.normal_bold), Paragraph(exec_level, self.normal)]
                 ]
-                t_man = Table(man_rows, colWidths=[180, 324])
-                t_man.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+                t_man = TableFormatter.build_table(
+                    data=man_rows,
+                    col_widths=[180, 324],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=False,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_man)
                 break
         if not has_manifest:
@@ -572,7 +763,7 @@ class ReportGenerator:
         story.append(PageBreak())
 
         # ==================================================
-        # 5. DYNAMIC ANALYSIS (SCHEMA-COMPLIANT)
+        # 5. DYNAMIC ANALYSIS
         # ==================================================
         story.append(HeadingTracker("DYNAMIC_ANALYSIS", page_map))
         story.append(Paragraph("3. Dynamic Sandbox Analysis", self.h1_style))
@@ -616,7 +807,11 @@ class ReportGenerator:
         ))
         story.append(Spacer(1, 5))
 
-        reg_rows = []
+        reg_header = [
+            Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
+            Paragraph("<b>Operation Type</b>", self.normal_bold)
+        ]
+        reg_rows = [reg_header]
         if "process_tree_generation" in telemetry:
             reg_data = telemetry.get("registry_monitoring", {})
             for k in reg_data.get("keys_deleted", []):
@@ -631,13 +826,17 @@ class ReportGenerator:
             for ev in telemetry.get("Registry", []):
                 reg_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
 
-        if reg_rows:
-            t_reg = Table(reg_rows, colWidths=[384, 120])
-            t_reg.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                ('PADDING', (0, 0), (-1, -1), 6),
-            ]))
+        if len(reg_rows) > 1:
+            t_reg = TableFormatter.build_table(
+                data=reg_rows,
+                col_widths=[384, 120],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
             story.append(t_reg)
         else:
             story.append(Paragraph("N/A - No registry mutations captured", self.normal))
@@ -665,7 +864,9 @@ class ReportGenerator:
                 else:
                     fs_modified_cnt += 1
 
-        story.append(PageBreak())
+        story.append(Spacer(1, 15))
+        story.append(get_divider())
+        story.append(Spacer(1, 15))
         # 2. Folder Changes Made During Installation
         story.append(Paragraph("Folder Changes Made During Installation", self.h2_style))
         story.append(Paragraph(
@@ -674,7 +875,11 @@ class ReportGenerator:
         ))
         story.append(Spacer(1, 5))
 
-        fs_rows = []
+        fs_header = [
+            Paragraph("<b>File / Folder Path</b>", self.normal_bold),
+            Paragraph("<b>Operation</b>", self.normal_bold)
+        ]
+        fs_rows = [fs_header]
         if "process_tree_generation" in telemetry:
             fs_data = telemetry.get("file_system_monitoring", {})
             for f in fs_data.get("files_created", []):
@@ -689,19 +894,25 @@ class ReportGenerator:
             for ev in telemetry.get("Filesystem", []):
                 fs_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
 
-        if fs_rows:
-            t_fs = Table(fs_rows, colWidths=[384, 120])
-            t_fs.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                ('PADDING', (0, 0), (-1, -1), 6),
-            ]))
+        if len(fs_rows) > 1:
+            t_fs = TableFormatter.build_table(
+                data=fs_rows,
+                col_widths=[384, 120],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
             story.append(t_fs)
         else:
             story.append(Paragraph("N/A - No file system changes captured", self.normal))
         story.append(Spacer(1, 10))
 
-        story.append(PageBreak())
+        story.append(Spacer(1, 15))
+        story.append(get_divider())
+        story.append(Spacer(1, 15))
         # 3. Persistence Check During the Execution
         story.append(Paragraph("Persistence Check During the Execution", self.h2_style))
         
@@ -753,13 +964,16 @@ class ReportGenerator:
                 ])
                 
             if len(high_rows) > 1:
-                t_high = Table(high_rows, colWidths=[110, 140, 254])
-                t_high.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ]))
+                t_high = TableFormatter.build_table(
+                    data=high_rows,
+                    col_widths=[110, 140, 254],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_high)
             else:
                 story.append(Paragraph("No high-confidence persistence mechanisms established.", self.normal))
@@ -790,13 +1004,16 @@ class ReportGenerator:
                 ])
                 
             if len(low_rows) > 1:
-                t_low = Table(low_rows, colWidths=[110, 140, 254])
-                t_low.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ]))
+                t_low = TableFormatter.build_table(
+                    data=low_rows,
+                    col_widths=[110, 140, 254],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_low)
             else:
                 story.append(Paragraph("No low-confidence system noise/lingering modifications detected.", self.normal))
@@ -805,7 +1022,11 @@ class ReportGenerator:
             
         else:
             # Fallback legacy layout
-            pers_rows = []
+            pers_rows = [[
+                Paragraph("<b>Category / Mechanism</b>", self.normal_bold),
+                Paragraph("<b>Details / Target</b>", self.normal_bold),
+                Paragraph("<b>Command / Associated Path</b>", self.normal_bold)
+            ]]
             if "process_tree_generation" in telemetry:
                 pers_data = telemetry.get("persistence_analysis", {})
                 for detail in pers_data.get("details", []):
@@ -818,29 +1039,35 @@ class ReportGenerator:
                 for ev in telemetry.get("Persistence", []):
                     pers_rows.append([Paragraph("Mechanism", self.normal), Paragraph(str(ev), self.normal), Paragraph("N/A", self.code_style)])
             
-            if pers_rows:
-                t_pers = Table(pers_rows, colWidths=[120, 150, 234])
-                t_pers.setStyle(TableStyle([
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
+            if len(pers_rows) > 1:
+                t_pers = TableFormatter.build_table(
+                    data=pers_rows,
+                    col_widths=[120, 150, 234],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(t_pers)
             else:
                 story.append(Paragraph("N/A - No persistence mechanisms established", self.normal))
             story.append(Spacer(1, 10))
 
-        story.append(PageBreak())
+        story.append(Spacer(1, 15))
+        story.append(get_divider())
+        story.append(Spacer(1, 15))
         # 4. Process Initialization
-        story.append(Paragraph("Process Initialization", self.h2_style))
+        proc_flowables = [
+            Paragraph("Process Initialization", self.h2_style)
+        ]
         
         # Embed WMI Process Tree Visual Graph
         img_path = telemetry.get("analysis_metadata", {}).get("process_tree_image_path", "")
         if img_path and os.path.exists(img_path):
-            story.append(KeepTogether([
-                Image(img_path, width=460, height=276),
-                Spacer(1, 10)
-            ]))
+            proc_flowables.append(Image(img_path, width=460, height=276))
+            proc_flowables.append(Spacer(1, 10))
             
         has_proc = False
         if "process_tree_generation" in telemetry:
@@ -860,21 +1087,27 @@ class ReportGenerator:
                 has_proc = True
                 build_tree_lines(tree_root)
                 tree_str = "<br/>".join(tree_lines)
-                story.append(Paragraph(tree_str, self.code_style))
+                proc_flowables.append(Paragraph(tree_str, self.code_style))
         else:
             proc_events = telemetry.get("Processes", [])
             if proc_events:
                 has_proc = True
                 for ev in proc_events:
-                    story.append(Paragraph(f"• {ev}", self.normal))
+                    proc_flowables.append(Paragraph(f"• {ev}", self.normal))
 
         if not has_proc:
-            story.append(Paragraph("N/A - No process initialization recorded", self.normal))
-        story.append(Spacer(1, 10))
+            proc_flowables.append(Paragraph("N/A - No process initialization recorded", self.normal))
+        proc_flowables.append(Spacer(1, 10))
 
-        story.append(PageBreak())
+        story.append(KeepTogether(proc_flowables))
+
+        story.append(Spacer(1, 15))
+        story.append(get_divider())
+        story.append(Spacer(1, 15))
         # 7. Resource Utility
-        story.append(Paragraph("Resource Utility", self.h2_style))
+        res_flowables = [
+            Paragraph("Resource Utility", self.h2_style)
+        ]
         has_res = False
         if "process_tree_generation" in telemetry:
             res_data = telemetry.get("resource_utility_monitoring", {})
@@ -885,28 +1118,34 @@ class ReportGenerator:
                     [Paragraph("<b>Peak CPU Usage</b>", self.normal_bold), Paragraph(f"{peak.get('peak_cpu_percent', 0)}%", self.normal)],
                     [Paragraph("<b>Peak Memory Footprint</b>", self.normal_bold), Paragraph(f"{peak.get('peak_memory_bytes', 0) / (1024 * 1024):.2f} MB", self.normal)]
                 ]
-                t_res = Table(peak_rows, colWidths=[180, 324])
-                t_res.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                ]))
-                story.append(t_res)
+                t_res = TableFormatter.build_table(
+                    data=peak_rows,
+                    col_widths=[180, 324],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=False,
+                    repeat_rows=0,
+                    valign='TOP',
+                    padding=6
+                )
+                res_flowables.append(t_res)
                 
                 # Render CPU utilization profile graph if present
                 cpu_img = peak.get("cpu_graph_image_path", "")
                 if cpu_img and os.path.exists(cpu_img):
-                    story.append(Spacer(1, 10))
-                    story.append(KeepTogether([
-                        Image(cpu_img, width=460, height=184),
-                        Spacer(1, 5)
-                    ]))
+                    res_flowables.append(Spacer(1, 10))
+                    res_flowables.append(Image(cpu_img, width=460, height=184))
+                    res_flowables.append(Spacer(1, 5))
         
         if not has_res:
-            story.append(Paragraph("N/A - Resource utility monitoring not performed", self.normal))
-        story.append(Spacer(1, 10))
+            res_flowables.append(Paragraph("N/A - Resource utility monitoring not performed", self.normal))
+        res_flowables.append(Spacer(1, 10))
 
-        story.append(PageBreak())
+        story.append(KeepTogether(res_flowables))
+
+        story.append(Spacer(1, 15))
+        story.append(get_divider())
+        story.append(Spacer(1, 15))
         # 8. Dropped / Loaded DLLs
         story.append(Paragraph("Dropped / Loaded DLLs", self.h2_style))
         dll_info = telemetry.get("dll_signature_monitoring", {})
@@ -944,13 +1183,16 @@ class ReportGenerator:
                     Paragraph(risk_text, self.normal),
                 ])
 
-            dll_table = Table(dll_table_data, colWidths=[90, 190, 74, 150])
-            dll_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('PADDING', (0, 0), (-1, -1), 6),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
+            dll_table = TableFormatter.build_table(
+                data=dll_table_data,
+                col_widths=[90, 190, 74, 150],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
             story.append(dll_table)
 
             # SHA256 detail sub-table
@@ -971,19 +1213,24 @@ class ReportGenerator:
                     name_p,
                     Paragraph(dll.get("sha256", "N/A"), self.code_style),
                 ])
-            hash_table = Table(hash_data, colWidths=[120, 384])
-            hash_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('PADDING', (0, 0), (-1, -1), 6),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
+            hash_table = TableFormatter.build_table(
+                data=hash_data,
+                col_widths=[120, 384],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
             story.append(hash_table)
         else:
             story.append(Paragraph("No DLLs were dropped or loaded during execution.", self.normal))
 
         # 9. Network Communication Analysis
-        story.append(PageBreak())
+        story.append(Spacer(1, 15))
+        story.append(get_divider())
+        story.append(Spacer(1, 15))
         story.append(Paragraph("Network Communication Analysis", self.h2_style))
         net_info = telemetry.get("network_communication_analysis", {})
         net_details = net_info.get("details", [])
@@ -1016,13 +1263,16 @@ class ReportGenerator:
                     Paragraph(action, self.code_style),
                 ])
                 
-            net_table = Table(net_table_data, colWidths=[64, 54, 74, 312])
-            net_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
-                ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                ('PADDING', (0, 0), (-1, -1), 6),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
+            net_table = TableFormatter.build_table(
+                data=net_table_data,
+                col_widths=[64, 54, 74, 312],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
             story.append(net_table)
         else:
             net_events = telemetry.get("Network", [])
@@ -1034,21 +1284,24 @@ class ReportGenerator:
                     net_table_data.append([
                         Paragraph(str(ev), self.code_style)
                     ])
-                net_table = Table(net_table_data, colWidths=[504])
-                net_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), self.bg_light),
-                    ('GRID', (0, 0), (-1, -1), 0.5, self.border_color),
-                    ('PADDING', (0, 0), (-1, -1), 6),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ]))
+                net_table = TableFormatter.build_table(
+                    data=net_table_data,
+                    col_widths=[504],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
                 story.append(net_table)
             else:
                 story.append(Paragraph("No network activity captured during execution.", self.normal))
 
         return story
 
-
     def _extract_iocs_data(self, data: dict) -> dict:
+        """Extracts indicators of compromise (IOCs) from generated report data structure."""
         iocs = {"hashes": [], "domains": [], "ips": [], "file_paths": []}
         seen = set()
 
@@ -1063,7 +1316,7 @@ class ReportGenerator:
         for htype in ("MD5", "SHA1", "SHA256"):
             v = str(meta.get(htype, "")).strip()
             if v and v not in ("N/A", "?"):
-                v = _clean_hash(v)
+                v = DataCleaner.clean_hash(v)
                 key = f"{htype}:{v}"
                 if key not in seen:
                     seen.add(key)
@@ -1084,3 +1337,39 @@ class ReportGenerator:
             _add("file_paths", pkg.get("Relative_Path", ""))
 
         return iocs
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPATIBILITY WRAPPER CLASS
+# ═══════════════════════════════════════════════════════════════════════════
+class ReportGenerator:
+    """
+    Backward-compatible wrapper for PDFReportBuilder.
+    Allows existing client calls to remain unchanged.
+    """
+    def __init__(self, config: dict) -> None:
+        self.config = config
+        self.builder = PDFReportBuilder(config)
+
+    def generate_reports(
+        self,
+        metadata:        dict,
+        package_data:    list,
+        static_data:     dict,
+        dynamic_data:    dict | None = None,
+        dynamic_summary: dict | None = None,
+        scoring_results: dict | None = None,
+    ) -> None:
+        """Invokes the modern report generation builder."""
+        self.builder.generate_reports(
+            metadata=metadata,
+            package_data=package_data,
+            static_data=static_data,
+            dynamic_data=dynamic_data,
+            dynamic_summary=dynamic_summary,
+            scoring_results=scoring_results
+        )
+
+    def _build_pdf(self, data: dict, path: str, *, scoring_results: dict | None = None) -> None:
+        """Invokes the modern PDF compiler."""
+        self.builder._build_pdf(data, path, scoring_results=scoring_results)

@@ -34,7 +34,7 @@ TARGET_EXE = r"C:\Users\Administrator\Desktop\sample.exe"
 PROCMON_PATH = r"C:\Tools\procmon.exe"
 PML_LOG = r"C:\Analysis\trace.pml"
 CSV_LOG = r"C:\Analysis\trace.csv"
-ANALYSIS_TIMEOUT = 60
+ANALYSIS_TIMEOUT = 120
 
 # Global State Management
 analysis_active = True
@@ -834,32 +834,132 @@ def get_sha256(path):
         return "N/A"
 
 def parse_kernel_logs():
-    """Parses ProcMon CSV to extract filesystem, registry, memory, and network mutations."""
+    """Parses ProcMon CSV to extract filesystem, registry, memory, and network mutations.
+    
+    Uses a two-pass approach:
+      Pass 1: Build the complete process tree from Process Create events. Start from the
+              root sample PID and walk the tree to discover ALL descendant PIDs. Also
+              include system service processes (like msiexec.exe) whose command lines
+              reference the sample path.
+      Pass 2: Re-scan the CSV with the expanded PID set to capture all file, registry,
+              network, DLL, and process events from the full tree.
+    """
     if not os.path.exists(CSV_LOG):
         stream_log("SYSTEM", "ERROR", "ProcMon CSV not found.")
         return
 
     with tracking_lock:
-        pids = set(tracked_pids)
+        root_pids = set(tracked_pids)
 
-    stream_log("SYSTEM", "INFO", "Parsing kernel traces...")
-    with open(CSV_LOG, mode='r', encoding='utf-8', errors='ignore') as f:
-        reader = csv.reader(f)
-        next(reader, None) 
+    stream_log("SYSTEM", "INFO", "Pass 1: Building complete process tree from kernel traces...")
 
-        for row in reader:
-            if len(row) < 7: continue
-            time_str, proc_name, pid, op, path, res, detail = row
-            
-            if pid in pids and res == "SUCCESS":
+    # ── PASS 1: Build full process tree ──────────────────────────────────
+    # parent_pid -> set of child PIDs
+    child_map = {}   # str(ppid) -> set(str(child_pid))
+    # pid -> command line (for service-process matching)
+    pid_cmdlines = {}  # str(pid) -> command_line
+    # pid -> process name
+    pid_names = {}  # str(pid) -> process_name
+
+    sample_basename = os.path.basename(TARGET_EXE).lower()
+
+    try:
+        with open(CSV_LOG, mode='r', encoding='utf-8', errors='ignore') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # skip header
+
+            for row in reader:
+                if len(row) < 7:
+                    continue
+                _time, proc_name, pid, op, path, res, detail = row
+
+                pid_names[pid] = proc_name
+
+                if op == "Process Create":
+                    child_pid_str = ""
+                    cmd_line = ""
+                    pid_match = re.search(r"PID:\s*(\d+)", detail)
+                    if pid_match:
+                        child_pid_str = pid_match.group(1)
+                    cmd_match = re.search(r"Command Line:\s*(.*)", detail)
+                    if cmd_match:
+                        cmd_line = cmd_match.group(1).strip()
+
+                    if child_pid_str:
+                        child_map.setdefault(pid, set()).add(child_pid_str)
+                        pid_cmdlines[child_pid_str] = cmd_line
+                        pid_names.setdefault(child_pid_str, os.path.basename(path))
+    except Exception as e:
+        stream_log("SYSTEM", "ERROR", f"Pass 1 CSV read failed: {e}")
+        return
+
+    # Walk the tree from root PIDs to find all descendants
+    expanded_pids = set(root_pids)
+    queue = list(root_pids)
+    while queue:
+        current = queue.pop(0)
+        for child in child_map.get(current, set()):
+            if child not in expanded_pids:
+                expanded_pids.add(child)
+                queue.append(child)
+
+    # Also include system service processes whose command line references the sample
+    # (e.g., msiexec.exe /i C:\...\sample.exe, or DrvInst.exe referencing the sample)
+    for pid_str, cmdline in pid_cmdlines.items():
+        if pid_str not in expanded_pids and cmdline:
+            cmdline_lower = cmdline.lower()
+            if sample_basename in cmdline_lower or "sample.exe" in cmdline_lower:
+                expanded_pids.add(pid_str)
+                # Also add children of this service process
+                sub_queue = [pid_str]
+                while sub_queue:
+                    cur = sub_queue.pop(0)
+                    for child in child_map.get(cur, set()):
+                        if child not in expanded_pids:
+                            expanded_pids.add(child)
+                            sub_queue.append(child)
+
+    stream_log("SYSTEM", "INFO",
+               f"Pass 1 complete: {len(expanded_pids)} PIDs in process tree "
+               f"(root: {len(root_pids)}, discovered: {len(expanded_pids) - len(root_pids)})")
+
+    # Update global tracked_pids for other modules
+    with tracking_lock:
+        tracked_pids.update(expanded_pids)
+
+    # ── PASS 2: Parse events with expanded PID set ───────────────────────
+    stream_log("SYSTEM", "INFO", "Pass 2: Extracting filesystem, registry, and behavioral events...")
+
+    # Acceptable result codes — SUCCESS is primary, but some operations produce
+    # meaningful non-SUCCESS results that should still be captured
+    ACCEPTABLE_RESULTS = {"SUCCESS", "BUFFER OVERFLOW", "BUFFER TOO SMALL"}
+
+    try:
+        with open(CSV_LOG, mode='r', encoding='utf-8', errors='ignore') as f:
+            reader = csv.reader(f)
+            next(reader, None)
+
+            for row in reader:
+                if len(row) < 7:
+                    continue
+                time_str, proc_name, pid, op, path, res, detail = row
+
+                if pid not in expanded_pids:
+                    continue
+
+                # For write/mutation operations, accept SUCCESS and buffer-related results
+                # For read/query operations that we check for evasion, also accept SUCCESS
+                if res not in ACCEPTABLE_RESULTS:
+                    continue
+
                 is_elev = is_pid_elevated(pid)
-                
+
                 # Anti-Analysis Checks (FR-DYN-07)
                 lower_p = path.lower()
                 is_evasion = False
                 ev_indicator = ""
                 ev_detail = ""
-                
+
                 if any(x in lower_p for x in ("vmtoolsd.exe", "vboxhook.dll", "vboxmrxnp.dll", "vboxguest", "vboxservice", "vboxcontrol", "vboxtray")):
                     is_evasion = True
                     ev_indicator = "Virtualization files detection query"
@@ -868,7 +968,7 @@ def parse_kernel_logs():
                     is_evasion = True
                     ev_indicator = "Virtualization registry detection query"
                     ev_detail = f"Process {proc_name} queried Registry Key: {path}"
-                    
+
                 if is_evasion:
                     stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
                         "timestamp": time_str,
@@ -886,13 +986,13 @@ def parse_kernel_logs():
                 # 1. Filesystem Mutations (FR-DYN-01)
                 if op in ("WriteFile", "SetEndOfFile"):
                     size, entropy = get_file_info(path)
-                    
+
                     is_notable = False
                     verdict = "CLEAN"
                     if "vssadmin" in lower_p or "\\\\.\\physicaldrive" in lower_p:
                         is_notable = True
                         verdict = "CRITICAL"
-                        
+
                     stream_log("FR-DYN-01", "FILE_MODIFIED", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-01",
@@ -906,7 +1006,7 @@ def parse_kernel_logs():
                         "is_notable": is_notable,
                         "verdict": verdict
                     })
-                elif op == "CreateFile" and ("Disposition: Create" in detail or "Disposition: New" in detail):
+                elif op == "CreateFile" and ("Disposition: Create" in detail or "Disposition: New" in detail or "OpenResult: Created" in detail):
                     size, entropy = get_file_info(path)
                     is_notable = False
                     verdict = "CLEAN"
@@ -915,7 +1015,7 @@ def parse_kernel_logs():
                         if "appdata\\local\\temp" in lower_p or "system32\\drivers" in lower_p or "programdata" in lower_p:
                             is_notable = True
                             verdict = "SUSPICIOUS"
-                            
+
                     stream_log("FR-DYN-01", "FILE_CREATED", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-01",
@@ -947,7 +1047,7 @@ def parse_kernel_logs():
                     if dest_match:
                         dest_path = dest_match.group(1).strip()
                     size, entropy = get_file_info(dest_path)
-                    
+
                     stream_log("FR-DYN-01", "FILE_RENAMED", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-01",
@@ -962,7 +1062,7 @@ def parse_kernel_logs():
                         "is_notable": False,
                         "verdict": "CLEAN"
                     })
-                    
+
                 # 2. Registry Mutations (FR-DYN-02)
                 elif op == "RegSetValue":
                     key_path, value_name = os.path.split(path)
@@ -974,7 +1074,7 @@ def parse_kernel_logs():
                     data_match = re.search(r"Data:\s*(.*)", detail)
                     if data_match:
                         val_data = data_match.group(1).strip()
-                        
+
                     is_notable = False
                     verdict = "CLEAN"
                     lower_val = value_name.lower()
@@ -987,7 +1087,7 @@ def parse_kernel_logs():
                     elif lower_val == "enablelua" and "0" in val_data:
                         is_notable = True
                         verdict = "HIGH RISK"
-                        
+
                     stream_log("FR-DYN-02", "REG_WRITE", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-02",
@@ -1001,7 +1101,7 @@ def parse_kernel_logs():
                         "is_notable": is_notable,
                         "verdict": verdict
                     })
-                    
+
                     # 3. Persistence Registry Tripwire (FR-DYN-03)
                     if "software\\microsoft\\windows\\currentversion\\run" in lower_p or "software\\microsoft\\windows\\currentversion\\runonce" in lower_p:
                         stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
@@ -1033,7 +1133,7 @@ def parse_kernel_logs():
                             "is_notable": True,
                             "verdict": "SUSPICIOUS"
                         })
-                        
+
                 elif op == "RegCreateKey" and "REG_CREATED_NEW_KEY" in detail:
                     stream_log("FR-DYN-02", "REG_CREATED", {
                         "timestamp": time_str,
@@ -1067,16 +1167,16 @@ def parse_kernel_logs():
                     cmd_match = re.search(r"Command Line:\s*(.*)", detail)
                     if cmd_match:
                         cmd_line = cmd_match.group(1)
-                        
+
                     # Use centralized LotL classifier
                     verdict = _classify_process_verdict(cmd_line, os.path.basename(path))
                     is_notable = verdict != "CLEAN"
-                    
+
                     # Also flag execution from temp/appdata paths
                     if not is_notable and ("temp" in path.lower() or "appdata\\local\\temp" in path.lower()):
                         is_notable = True
                         verdict = "SUSPICIOUS"
-                        
+
                     stream_log("FR-DYN-04", "PROCESS_SPAWN", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-04",
@@ -1088,10 +1188,6 @@ def parse_kernel_logs():
                         "is_notable": is_notable,
                         "verdict": verdict
                     })
-                    
-                    with tracking_lock:
-                        tracked_pids.add(str(child_pid))
-                    pids.add(str(child_pid))
 
                 # 5. Memory / DLL loading (FR-DYN-05)
                 elif op == "Load Image" and path.lower().endswith(".dll"):
@@ -1108,7 +1204,7 @@ def parse_kernel_logs():
                         risk_indicators.append("Loaded from temp directory")
                         is_notable = True
                         verdict = "SUSPICIOUS"
-                        
+
                     stream_log("FR-DYN-05", "DLL_LOAD", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-05",
@@ -1129,7 +1225,7 @@ def parse_kernel_logs():
                     remote_addr = path
                     if "->" in path:
                         remote_addr = path.split("->")[1].strip()
-                        
+
                     dst_ip = remote_addr
                     dst_port = 0
                     if ":" in remote_addr:
@@ -1139,13 +1235,13 @@ def parse_kernel_logs():
                             dst_port = int(parts_ip[-1])
                         except ValueError:
                             pass
-                            
+
                     is_notable = False
                     verdict = "CLEAN"
                     if dst_port in (4444, 8080, 9999):
                         is_notable = True
                         verdict = "MALICIOUS"
-                        
+
                     stream_log("FR-DYN-06", "NETWORK_CONNECTION", {
                         "timestamp": time_str,
                         "tag": "FR-DYN-06",
@@ -1162,6 +1258,10 @@ def parse_kernel_logs():
                         "is_notable": is_notable,
                         "verdict": verdict
                     })
+    except Exception as e:
+        stream_log("SYSTEM", "ERROR", f"Pass 2 CSV parse failed: {e}")
+
+    stream_log("SYSTEM", "INFO", "Kernel trace parsing complete.")
 
 # ==========================================
 # MASTER EXECUTION ORCHESTRATOR
@@ -1221,7 +1321,11 @@ if __name__ == "__main__":
     # 3. Detonate Malware
     stream_log("SYSTEM", "EXEC", f"Detonating {TARGET_EXE}")
     try:
-        proc = subprocess.Popen([TARGET_EXE], shell=False)
+        proc = subprocess.Popen(
+            [TARGET_EXE],
+            shell=False,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
         with tracking_lock:
             tracked_pids.add(str(proc.pid))
         stream_log("FR-DYN-04", "PROCESS_ROOT", f"PID: {proc.pid}")

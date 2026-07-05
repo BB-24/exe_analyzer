@@ -13,7 +13,7 @@ sqlalchemy         # Database ORM library
 PyPubSub           # Thread-safe synchronous event broker
 PyYAML             # YAML configuration parser
 pefile             # Portable Executable (PE) static analysis parser
-yara-python        # YARA engine binding for signature detection
+#yara-python        # YARA engine binding for signature detection
 reportlab          # PDF document layout and generation engine
 scapy              # Deep packet inspection & sniffer network engine
 watchdog           # Filesystem event monitoring library

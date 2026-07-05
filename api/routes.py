@@ -19,7 +19,7 @@ PIPELINE_EXTRACTED_DIR = os.path.join(TEMP_WORKSPACE, "extracted")
 os.makedirs(QUARANTINE_DIR, exist_ok=True)
 
 
-def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str):
+def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str, duration_seconds: int):
     pub.sendMessage("analysis.log", sha256_hash=sha256_hash, filename=filename, status="Queued")
     pub.sendMessage(
         "analysis.trigger",
@@ -27,6 +27,7 @@ def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_ty
         sha256_hash=sha256_hash,
         filename=filename,
         workflow_type=workflow_type,
+        duration_seconds=duration_seconds,
     )
 
 
@@ -35,10 +36,15 @@ async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     analysis_type: str = Form("full_detonation"),
+    analysis_duration: int = Form(120),
 ):
     try:
         content = await file.read()
         sha256_hash = hashlib.sha256(content).hexdigest()
+
+        # Validate duration (seconds)
+        if analysis_duration not in (120, 540, 900):
+            analysis_duration = 120
 
         dest_filename = f"{sha256_hash}.malz"
         dest_filepath = os.path.join(QUARANTINE_DIR, dest_filename)
@@ -52,6 +58,7 @@ async def upload_file(
             filename=file.filename,
             filepath=dest_filepath,
             workflow_type=analysis_type,
+            duration_seconds=analysis_duration,
         )
 
         return JSONResponse(
@@ -61,7 +68,8 @@ async def upload_file(
                 "sha256": sha256_hash,
                 "filename": file.filename,
                 "analysis_type": analysis_type,
-                "message": f"File queued for {analysis_type} analysis.",
+                "analysis_duration": analysis_duration,
+                "message": f"File queued for {analysis_type} analysis (Unified Agent Runtime: {analysis_duration}s).",
             },
         )
     except Exception as e:

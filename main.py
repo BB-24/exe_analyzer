@@ -130,7 +130,7 @@ def handle_gui_update_table(module: str, data):
     _push_sse(sha256, "table_update", {"module": module, "data": data if isinstance(data, dict) else {}})
 
 
-def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation"):
+def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120):
     global active_session_sha256
     print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type}")
 
@@ -191,9 +191,10 @@ def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, work
                 run_static=run_static,
                 run_dynamic=run_dynamic,
                 original_filename=filename,
+                duration_seconds=duration_seconds,
             )
 
-            completion_event.wait(timeout=900)
+            completion_event.wait(timeout=duration_seconds + 600)
 
         except Exception as e:
             print(f"[Backend Error] {e}")
