@@ -648,6 +648,15 @@
     <div class="section-panel" id="tab-static">
       {% set static_data = report_data.get('static_analysis', {}) if report_data else {} %}
       {% set mem_static = mem_sess.get('results_store', {}) if mem_sess else {} %}
+      
+      {% set ns = namespace(has_static=false) %}
+      {% if mem_static %}
+        {% for k in mem_static.keys() %}
+          {% if 'Static:' in k %}
+            {% set ns.has_static = true %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
 
       {% if static_data %}
       {% for target, categories in static_data.items() %}
@@ -684,7 +693,7 @@
         {% endfor %}
       </div>
       {% endfor %}
-      {% elif mem_static %}
+      {% elif mem_static and ns.has_static %}
       <!-- Render from in-memory session results_store -->
       {% for module_key, data in mem_static.items() %}
       {% if 'Static:' in module_key %}

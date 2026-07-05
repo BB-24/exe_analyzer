@@ -2206,53 +2206,77 @@
     function fetchHistory() {
       fetch('/api/history')
         .then(r => r.json())
-        .then(rows => { updateHistoryTables(rows); updateStats(rows); })
+        .then(rows => {
+          if (Array.isArray(rows)) {
+            updateHistoryTables(rows);
+            updateStats(rows);
+          }
+        })
         .catch(() => { });
     }
 
     function updateStats(rows) {
+      if (!Array.isArray(rows)) return;
       const total = rows.length;
-      const proc = rows.filter(r => r.status === 'Processing' || r.status === 'Queued').length;
-      const mal = rows.filter(r => r.risk_score !== '-' && parseFloat(r.risk_score) >= 75).length;
-      const scored = rows.filter(r => r.risk_score !== '-');
+      const proc = rows.filter(r => r && (r.status === 'Processing' || r.status === 'Queued')).length;
+      const mal = rows.filter(r => r && r.risk_score !== '-' && r.risk_score !== null && r.risk_score !== undefined && parseFloat(r.risk_score) >= 75).length;
+      const scored = rows.filter(r => r && r.risk_score !== '-' && r.risk_score !== null && r.risk_score !== undefined && !isNaN(parseFloat(r.risk_score)));
       const avg = scored.length
         ? (scored.reduce((s, r) => s + parseFloat(r.risk_score) / 10, 0) / scored.length).toFixed(1)
         : null;
-      document.getElementById('st-total').textContent = total;
-      document.getElementById('st-proc').textContent = proc;
-      document.getElementById('st-mal').textContent = mal;
-      document.getElementById('st-avg').textContent = avg !== null ? avg : '—';
+      
+      const stTotal = document.getElementById('st-total');
+      const stProc = document.getElementById('st-proc');
+      const stMal = document.getElementById('st-mal');
+      const stAvg = document.getElementById('st-avg');
+
+      if (stTotal) stTotal.textContent = total;
+      if (stProc) stProc.textContent = proc;
+      if (stMal) stMal.textContent = mal;
+      if (stAvg) stAvg.textContent = avg !== null ? avg : '—';
     }
 
     function historyRowHtml(item) {
-      const sv = item.risk_score !== '-' ? parseFloat(item.risk_score) / 10.0 : null;
-      const pill = sv !== null
+      if (!item) return '';
+      const sha = item.sha256_hash || '';
+      const filename = item.filename || 'unknown';
+      const statusText = item.status || 'Complete';
+      const statusClass = statusText.toLowerCase();
+
+      const sv = (item.risk_score !== '-' && item.risk_score !== null && item.risk_score !== undefined && !isNaN(parseFloat(item.risk_score)))
+        ? parseFloat(item.risk_score) / 10.0 
+        : null;
+
+      const pill = (sv !== null && !isNaN(sv))
         ? `<span class="score-pill ${sv >= 7.5 ? 'score-malicious' : sv >= 5 ? 'score-highrisk' : sv >= 3 ? 'score-suspicious' : 'score-clean'}">${sv.toFixed(1)}</span>`
         : '<span style="color:hsl(var(--text-dim));">—</span>';
 
       let terminateLink = '';
-      if (item.status === 'Processing' || item.status === 'Queued') {
-        terminateLink = `&nbsp; <a href="#" onclick="terminateAnalysis('${item.sha256_hash}');return false;" class="section-link" style="color:hsl(var(--danger));">Terminate 🛑</a>`;
+      if (statusText === 'Processing' || statusText === 'Queued') {
+        terminateLink = `&nbsp; <a href="#" onclick="terminateAnalysis('${sha}');return false;" class="section-link" style="color:hsl(var(--danger));">Terminate 🛑</a>`;
       }
 
-      return `<tr id="row-${item.sha256_hash}">
-    <td class="mono" style="max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(item.sha256_hash)}">${item.sha256_hash.substring(0, 16)}…</td>
+      const shaShort = sha ? (sha.substring(0, 16) + '…') : '—';
+
+      return `<tr id="row-${sha}">
+    <td class="mono" style="max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(sha)}">${esc(shaShort)}</td>
     <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-      <a href="#" onclick="loadAnalysis('${item.sha256_hash}');return false;" class="section-link" style="font-weight:600;">${esc(item.filename)}</a>
+      <a href="#" onclick="loadAnalysis('${sha}');return false;" class="section-link" style="font-weight:600;">${esc(filename)}</a>
     </td>
-    <td style="color:hsl(var(--text-dim));font-size:.7rem;white-space:nowrap;">${item.timestamp || '—'}</td>
-    <td><span class="badge badge-${item.status.toLowerCase()}">${esc(item.status)}</span></td>
+    <td style="color:hsl(var(--text-dim));font-size:.7rem;white-space:nowrap;">${esc(item.timestamp || '—')}</td>
+    <td><span class="badge badge-${statusClass}">${esc(statusText)}</span></td>
     <td>${pill}</td>
     <td style="white-space:nowrap;">
-      <a href="#" onclick="loadAnalysis('${item.sha256_hash}');return false;" class="section-link">Load ↙</a>
+      <a href="#" onclick="loadAnalysis('${sha}');return false;" class="section-link">Load ↙</a>
       &nbsp;
-      <a href="/report/${item.sha256_hash}" class="section-link" target="_blank">Report ↗</a>
+      <a href="/report/${sha}" class="section-link" target="_blank">Report ↗</a>
       ${terminateLink}
     </td>
   </tr>`;
     }
 
     function updateHistoryTables(rows) {
+      if (!Array.isArray(rows)) return;
       const empty = '<tr><td colspan="6" class="empty-state"><span class="empty-icon">🧬</span>No samples yet.</td></tr>';
       const html = rows.length ? rows.map(historyRowHtml).join('') : empty;
       ['historyBody', 'reportHistoryBody'].forEach(id => {

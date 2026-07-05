@@ -1,0 +1,152 @@
+{
+    "Analysis_Summary": {
+        "Analysis ID": "MARS-Postman.exe-7D5BB6",
+        "Original File Name": "Postman.exe",
+        "File Size (Bytes)": 359512,
+        "Extension": ".exe",
+        "Creation Timestamp": "2026-07-06 03:01:08",
+        "Magic Bytes (Hex)": "4D5A9000",
+        "MIME/Format Guess": "application/x-msdownload (PE Executable)",
+        "MD5": "0883648ce0b8b0928ce8ce1f004decd8",
+        "SHA1": "30a9bdfcfe6b3bd5dcf21c4f735d2e2b37a2093d",
+        "SHA256": "b0c410dd36284fdda9075dc46ed4f4aaae90258318604b15b2990100d1eefe67",
+        "SHA512": "0a6b8cffa2b39e7ea81d6fb9f9f6dc52eeebdda2d2135535e0653b2d86656334e40f2734fcd0f534f8dcba4d7e0971d53563355178b10e977ca1329aa6426c5f"
+    },
+    "Package_Extraction": [],
+    "Static_Analysis_Results": {
+        "Postman.exe": {
+            "PE Headers": {
+                "Machine Architecture": "0x8664",
+                "Compile Timestamp": "2025-10-20 00:36:33",
+                "DOS Header Offset (e_lfanew)": "0x110",
+                "Address of Entry Point": "0xbd00",
+                "Entry Point Section Location": ".text (Virtual: 0x1000-0x23eec, Raw: 0x400-0x23400)",
+                "Image Base": "0x140000000",
+                "Number of Sections": 7
+            },
+            "Mitigations": {
+                "DEP / NX Bit": "Enabled",
+                "ASLR": "Enabled",
+                "CFG (Control Flow Guard)": "Enabled",
+                "RFG (Return Flow Guard)": "Disabled",
+                "SafeSEH": "Disabled",
+                "Stack Canaries (/GS)": "Enabled",
+                "Hardware Protection (CET/Shadow Stack)": "Enabled",
+                "Force Integrity": "Disabled",
+                "Isolation / AppContainer": "Disabled"
+            },
+            "Sections": {
+                "Section: .text": "Perms: R-E | Entropy: 6.42 ",
+                "Section: .rdata": "Perms: R-- | Entropy: 4.66 ",
+                "Section: .data": "Perms: RW- | Entropy: 3.71 ",
+                "Section: .pdata": "Perms: R-- | Entropy: 5.18 ",
+                "Section: _RDATA": "Perms: R-- | Entropy: 4.18 ",
+                "Section: .rsrc": "Perms: R-- | Entropy: 4.31 ",
+                "Section: .reloc": "Perms: R-- | Entropy: 5.35 "
+            },
+            "Suspicious Imports": {
+                "Tracked APIs Found": 2,
+                "APIs": "CreateProcessW, IsDebuggerPresent"
+            },
+            "Manifest Data": {
+                "Manifest Status": "Parsed Successfully",
+                "Requested Execution Level": "asInvoker"
+            },
+            "Strings Analytics": {
+                "IPv4": 1,
+                "IPv6": 0,
+                "URL": 8,
+                "Registry": 0,
+                "Email": 0,
+                "Password-Like": 0
+            },
+            "Extracted Artifacts": {
+                "IPv4": [
+                    "6.0.0.0"
+                ],
+                "IPv6": [],
+                "URL": [
+                    "http://cacerts.digicert.com",
+                    "http://crl3.digicert.com",
+                    "http://crl4.digicert.com",
+                    "http://ocsp.digicert.com0",
+                    "http://ocsp.digicert.com0A",
+                    "http://ocsp.digicert.com0C",
+                    "http://schemas.microsoft.com",
+                    "http://www.digicert.com"
+                ],
+                "Registry": [],
+                "Email": [],
+                "Password-Like": []
+            },
+            "YARA Signatures": {
+                "Hits": 1,
+                "Matched Rules": "Dropper_Embedded_Executable"
+            }
+        }
+    },
+    "Dynamic_Analysis_Results": {},
+    "Dynamic_Summary": {},
+    "Scoring_Results": {
+        "Postman.exe": {
+            "target": "Postman.exe",
+            "verdict": "CLEAN",
+            "total_score": 1.76,
+            "confidence": "MEDIUM",
+            "timestamp": "2026-07-05T21:31:10Z",
+            "categories": [
+                {
+                    "name": "YARA Signatures",
+                    "score": 5.0,
+                    "max_score": 20.0,
+                    "weight_pct": 20.0,
+                    "normalised": 2.5,
+                    "findings": [
+                        "YARA rule matched: Dropper_Embedded_Executable"
+                    ]
+                },
+                {
+                    "name": "Suspicious Imports",
+                    "score": 2.0,
+                    "max_score": 18.0,
+                    "weight_pct": 18.0,
+                    "normalised": 1.11,
+                    "findings": [
+                        "IsDebuggerPresent \u2014 anti-analysis"
+                    ]
+                },
+                {
+                    "name": "Section Analysis",
+                    "score": 0.0,
+                    "max_score": 14.0,
+                    "weight_pct": 14.0,
+                    "normalised": 0.0,
+                    "findings": []
+                },
+                {
+                    "name": "Mitigations",
+                    "score": 1.5,
+                    "max_score": 8.0,
+                    "weight_pct": 8.0,
+                    "normalised": 1.88,
+                    "findings": [
+                        "RFG (Return Flow Guard): disabled (mitigation absent)",
+                        "SafeSEH: disabled (mitigation absent)",
+                        "Force Integrity: disabled (mitigation absent)"
+                    ]
+                },
+                {
+                    "name": "String Artefacts",
+                    "score": 3.5,
+                    "max_score": 8.0,
+                    "weight_pct": 8.0,
+                    "normalised": 4.38,
+                    "findings": [
+                        "1 embedded IP address(es): 6.0.0.0",
+                        "8 embedded URL(s): http://cacerts.digicert.com, http://crl3.digicert.com"
+                    ]
+                }
+            ]
+        }
+    }
+}
