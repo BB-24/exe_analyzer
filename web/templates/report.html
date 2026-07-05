@@ -1,739 +1,1276 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MARS Report — {{ record.filename }}</title>
-<link rel="stylesheet" href="/static/css/tailwind.css">
-<script src="/static/js/chart.js"></script>
-<style>
-/* @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap'); */
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MARS Report — {{ record.filename }}</title>
+  <link rel="stylesheet" href="/static/css/tailwind.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
 
-/* ── Reset & base ────────────────────────────────────────────────── */
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;overflow-y:auto;font-family:var(--font-sans);color-scheme:dark;}
-body{background:hsl(var(--bg-base));color:hsl(var(--text-primary));-webkit-font-smoothing:antialiased;}
+    /* ── Reset & base ────────────────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-/* ── Design tokens ───────────────────────────────────────────────── */
-:root {
-  --bg-base:      225 47% 4%; /* Deep dark dashboard canvas */
-  --bg-sidebar:   225 45% 6%; /* Slightly lighter sidebar */
-  --bg-card:      225 35% 8%; /* Dark glass card base */
-  --bg-card-2:    225 35% 10%; /* Inner panels */
-  --bg-input:     225 40% 5%;
-  --border:       225 30% 14%;
-  --border-glow:  250 84% 63%;
-  --text-primary: 210 40% 98%;
-  --text-muted:   215 20% 65%;
-  --text-dim:     215 15% 42%;
-  --accent:       250 84% 63%; /* Violet accent color */
-  --accent-2:     163 80% 50%; /* Green accent */
-  --danger:       0 84% 60%;
-  --warn:         25 95% 53%;
-  --ok:           142 70% 50%;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-title: 'Outfit', sans-serif;
-  --shadow-card: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 20px hsl(var(--accent) / 0.15);
-  --r: 0.75rem; /* 12px */
-}
+    html,
+    body {
+      height: 100%;
+      overflow-y: auto;
+      font-family: var(--font-sans);
+      color-scheme: dark;
+    }
 
-.container{max-width:1200px;margin:0 auto;padding:1.5rem;}
+    body {
+      background: hsl(var(--bg-base));
+      color: hsl(var(--text-primary));
+      -webkit-font-smoothing: antialiased;
+    }
 
-/* ── Header ──────────────────────────────────────────────────────── */
-header {
-  background:hsl(var(--bg-sidebar));
-  border-bottom:1px solid hsl(var(--border));
-  padding:.85rem 1.5rem;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-}
-.logo-container {
-  display:flex;
-  align-items:center;
-  gap:.85rem;
-}
-.logo-badge {
-  background:linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));
-  color:#fff;
-  font-size:.9rem;
-  font-weight:800;
-  letter-spacing:.08em;
-  padding:.35rem .95rem;
-  border-radius:.45rem;
-  font-family:var(--font-mono);
-  box-shadow:0 0 15px hsl(var(--accent)/.3);
-}
-.logo-title {
-  font-size:1.05rem;
-  font-weight:700;
-  color:hsl(var(--text-primary));
-  letter-spacing:-.01em;
-  font-family:var(--font-title);
-  margin:0;
-  line-height:1.2;
-}
-.logo-subtitle {
-  font-size:.65rem;
-  color:hsl(var(--text-dim));
-  text-transform:uppercase;
-  letter-spacing:.12em;
-  margin-top:.05rem;
-  font-weight:600;
-}
+    /* ── Design tokens ───────────────────────────────────────────────── */
+    :root {
+      --bg-base: 225 47% 4%;
+      /* Deep dark dashboard canvas */
+      --bg-sidebar: 225 45% 6%;
+      /* Slightly lighter sidebar */
+      --bg-card: 225 35% 8%;
+      /* Dark glass card base */
+      --bg-card-2: 225 35% 10%;
+      /* Inner panels */
+      --bg-input: 225 40% 5%;
+      --border: 225 30% 14%;
+      --border-glow: 250 84% 63%;
+      --text-primary: 210 40% 98%;
+      --text-muted: 215 20% 65%;
+      --text-dim: 215 15% 42%;
+      --accent: 250 84% 63%;
+      /* Violet accent color */
+      --accent-2: 163 80% 50%;
+      /* Green accent */
+      --danger: 0 84% 60%;
+      --warn: 25 95% 53%;
+      --ok: 142 70% 50%;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --font-sans: 'Inter', system-ui, sans-serif;
+      --font-title: 'Outfit', sans-serif;
+      --shadow-card: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 0 20px hsl(var(--accent) / 0.15);
+      --r: 0.75rem;
+      /* 12px */
+    }
 
-/* ── Cards ──────────────────────────────────────────────────────── */
-.card{
-  background:rgba(15, 20, 36, 0.4);
-  border:1px solid rgba(255, 255, 255, 0.05);
-  border-radius:var(--r);padding:1.35rem;
-  box-shadow:var(--shadow-card);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  position:relative;
-  margin-bottom:1.25rem;
-}
-.card-title{font-size:.88rem;font-weight:700;color:hsl(var(--text-primary));margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;letter-spacing:-.01em;font-family:var(--font-title);border-bottom:1px solid hsl(var(--border));padding-bottom:.75rem;}
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
 
-/* ── KV rows ────────────────────────────────────────────────────── */
-.kv-row{display:flex;border-bottom:1px solid hsl(var(--border)/.4);padding:.45rem 0;font-size:.76rem;align-items:center;}
-.kv-row:last-child{border-bottom:none;}
-.kv-key{width:38%;color:hsl(var(--text-muted));font-weight:600;flex-shrink:0;font-size:.74rem;}
-.kv-val{font-family:var(--font-mono);font-size:.72rem;color:hsl(var(--text-primary));word-break:break-all;opacity:0.95;}
+    /* ── Header ──────────────────────────────────────────────────────── */
+    header {
+      background: hsl(var(--bg-sidebar));
+      border-bottom: 1px solid hsl(var(--border));
+      padding: .85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
 
-/* ── Data tables ────────────────────────────────────────────────── */
-.tbl-wrap{border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden;overflow-x:auto;margin-bottom:1rem;}
-.data-table{width:100%;border-collapse:collapse;font-size:.78rem;}
-.data-table th{
-  background:rgba(255, 255, 255, 0.02);color:hsl(var(--text-muted));
-  text-align:left;padding:.65rem .95rem;font-size:.67rem;font-weight:700;
-  text-transform:uppercase;letter-spacing:.08em;
-  border-bottom:1px solid hsl(var(--border));white-space:nowrap;
-}
-.data-table td{padding:.6rem .95rem;border-bottom:1px solid hsl(var(--border)/.4);vertical-align:top;word-break:break-all;color:hsl(var(--text-primary));}
-.data-table tr:last-child td{border-bottom:none;}
-.data-table tr:hover td{background:hsl(var(--border)/.2);}
-.data-table .mono{font-family:var(--font-mono);font-size:.7rem;color:hsl(var(--text-primary));opacity:0.95;}
-.mono{font-family:var(--font-mono);font-size:.72rem;}
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: .85rem;
+    }
 
-/* ── Badges ─────────────────────────────────────────────────────── */
-.badge{display:inline-block;padding:.18rem .55rem;border-radius:.25rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;}
-.badge-complete,.badge-enabled{background:hsl(var(--ok)/.12);color:hsl(var(--ok));border:1px solid hsl(var(--ok)/.25);}
-.badge-failed,.badge-disabled{background:hsl(var(--danger)/.12);color:hsl(var(--danger));border:1px solid hsl(var(--danger)/.25);}
-.badge-queued{background:hsl(210 100% 56%/.12);color:hsl(210 100% 65%);border:1px solid hsl(210 100% 56%/.25);}
-.badge-processing{background:hsl(var(--warn)/.12);color:hsl(var(--warn));border:1px solid hsl(var(--warn)/.25);}
-.badge-na{background:hsl(220 15% 15%);color:hsl(var(--text-dim));border:1px solid hsl(var(--border));}
-.badge-terminated{background:hsl(0 0% 50%/.12);color:hsl(0 0% 75%);border:1px solid hsl(0 0% 50%/.25);}
-.badge-flagged{background:hsl(var(--danger)/.1);color:#ff6b6b;border:1px solid hsl(var(--danger)/.2);}
+    .logo-badge {
+      background: linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));
+      color: #fff;
+      font-size: .9rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      padding: .35rem .95rem;
+      border-radius: .45rem;
+      font-family: var(--font-mono);
+      box-shadow: 0 0 15px hsl(var(--accent)/.3);
+    }
 
-/* ── Score pills ────────────────────────────────────────────────── */
-.score-pill{font-family:var(--font-mono);font-size:.72rem;font-weight:700;padding:.2rem .55rem;border-radius:.25rem;}
-.score-malicious{background:hsl(var(--danger)/.12);color:#ff4d4d;border:1px solid hsl(var(--danger)/.25);box-shadow:0 0 10px hsl(var(--danger)/.1);}
-.score-highrisk{background:hsl(30 100% 50%/.12);color:#ff9500;border:1px solid hsl(30 100% 50%/.25);box-shadow:0 0 10px hsl(30 100% 50%/.1);}
-.score-suspicious{background:hsl(var(--warn)/.12);color:hsl(var(--warn));border:1px solid hsl(var(--warn)/.25);box-shadow:0 0 10px hsl(var(--warn)/.1);}
-.score-clean{background:hsl(var(--ok)/.1);color:hsl(var(--ok));border:1px solid hsl(var(--ok)/.2);box-shadow:0 0 10px hsl(var(--ok)/.05);}
+    .logo-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: hsl(var(--text-primary));
+      letter-spacing: -.01em;
+      font-family: var(--font-title);
+      margin: 0;
+      line-height: 1.2;
+    }
 
-/* ── Verdict banner ─────────────────────────────────────────────── */
-.verdict-banner{padding:1.25rem 1.5rem;border-radius:var(--r);display:flex;align-items:center;gap:1.5rem;margin-bottom:1.25rem;position:relative;overflow:hidden;}
-.verdict-malicious{background:linear-gradient(135deg, hsl(var(--danger)/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(var(--danger)/.3);}
-.verdict-highrisk{background:linear-gradient(135deg, hsl(30 100% 50%/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(30 100% 50%/.3);}
-.verdict-suspicious{background:linear-gradient(135deg, hsl(var(--warn)/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(var(--warn)/.3);}
-.verdict-clean{background:linear-gradient(135deg, hsl(var(--ok)/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(var(--ok)/.3);}
-.verdict-label{font-size:1.75rem;font-weight:800;font-family:var(--font-mono);letter-spacing:-.02em;text-shadow:0 0 15px currentColor;}
-.verdict-score{font-size:.78rem;color:hsl(var(--text-muted));font-weight:500;}
+    .logo-subtitle {
+      font-size: .65rem;
+      color: hsl(var(--text-dim));
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      margin-top: .05rem;
+      font-weight: 600;
+    }
 
-/* ── Gauge ──────────────────────────────────────────────────────── */
-.gauge-track{background:rgba(255, 255, 255, 0.05);border:1px solid rgba(255, 255, 255, 0.08);border-radius:1rem;height:10px;flex:1;overflow:hidden;}
-.gauge-fill{height:100%;border-radius:1rem;transition:width .8s cubic-bezier(.4,0,.2,1);box-shadow:0 0 10px currentColor;background-image:linear-gradient(90deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);}
+    /* ── Cards ──────────────────────────────────────────────────────── */
+    .card {
+      background: rgba(15, 20, 36, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: var(--r);
+      padding: 1.35rem;
+      box-shadow: var(--shadow-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      position: relative;
+      margin-bottom: 1.25rem;
+    }
 
-/* ── Section tabs ───────────────────────────────────────────────── */
-.section-tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem;}
-.stab{
-  padding:.45rem .95rem;border-radius:.4rem;
-  border:1px solid hsl(var(--border));background:transparent;
-  color:hsl(var(--text-muted));font-size:.72rem;font-weight:600;
-  cursor:pointer;font-family:var(--font-sans);
-  display:flex;align-items:center;gap:.4rem;transition:all .15s ease;
-}
-.stab:hover{background:hsl(var(--border)/.4);color:hsl(var(--text-primary));border-color:hsl(var(--text-dim));}
-.stab.active{background:hsl(var(--accent)/.15);color:hsl(var(--accent));border-color:hsl(var(--accent)/.4);box-shadow:var(--shadow-glow);}
+    .card-title {
+      font-size: .88rem;
+      font-weight: 700;
+      color: hsl(var(--text-primary));
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      letter-spacing: -.01em;
+      font-family: var(--font-title);
+      border-bottom: 1px solid hsl(var(--border));
+      padding-bottom: .75rem;
+    }
 
-.section-panel{display:none;}
-.section-panel.active{display:block;}
+    /* ── KV rows ────────────────────────────────────────────────────── */
+    .kv-row {
+      display: flex;
+      border-bottom: 1px solid hsl(var(--border)/.4);
+      padding: .45rem 0;
+      font-size: .76rem;
+      align-items: center;
+    }
 
-/* ── Download buttons ───────────────────────────────────────────── */
-.dl-btn{
-  display:inline-flex;align-items:center;gap:.45rem;padding:.55rem 1.15rem;
-  border-radius:.45rem;border:1px solid;font-size:.78rem;font-weight:700;
-  cursor:pointer;text-decoration:none;transition:all .15s ease;white-space:nowrap;
-}
-.dl-btn-json{border-color:hsl(var(--accent)/.35);color:hsl(var(--accent));background:hsl(var(--accent)/.06);}
-.dl-btn-json:hover{background:hsl(var(--accent)/.15);box-shadow:var(--shadow-glow);transform:translateY(-1px);}
-.dl-btn-pdf{border-color:hsl(var(--danger)/.35);color:#ff5f5f;background:hsl(var(--danger)/.06);}
-.dl-btn-pdf:hover{background:hsl(var(--danger)/.15);box-shadow:0 0 15px hsl(var(--danger)/.15);transform:translateY(-1px);}
-.dl-btn-pcap{border-color:hsl(210 100% 56%/.35);color:hsl(210 100% 68%);background:hsl(210 100% 56%/.06);}
-.dl-btn-pcap:hover{background:hsl(210 100% 56%/.15);box-shadow:0 0 15px rgba(30,144,255,0.15);transform:translateY(-1px);}
+    .kv-row:last-child {
+      border-bottom: none;
+    }
 
-/* ── YARA ───────────────────────────────────────────────────────── */
-.yara-rule{
-  display:inline-block;margin:.25rem .2rem;padding:.25rem .75rem;
-  background:hsl(var(--danger)/.08);color:#ff5555;
-  border:1px solid hsl(var(--danger)/.25);border-radius:.3rem;
-  font-size:.7rem;font-family:var(--font-mono);box-shadow:0 0 10px rgba(255,0,0,0.05);
-}
+    .kv-key {
+      width: 38%;
+      color: hsl(var(--text-muted));
+      font-weight: 600;
+      flex-shrink: 0;
+      font-size: .74rem;
+    }
 
-/* ── Terminal log ────────────────────────────────────────────────── */
-.log-box{
-  background:#03050a;border:1px solid hsl(var(--border));
-  border-radius:.5rem;padding:1rem 1.25rem;
-  font-family:var(--font-mono);font-size:.72rem;line-height:1.7;
-  overflow-y:auto;color:#39ff14;max-height:400px;
-  box-shadow:inset 0 0 15px rgba(0,0,0,0.8);
-  white-space:pre-wrap;
-}
+    .kv-val {
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      color: hsl(var(--text-primary));
+      word-break: break-all;
+      opacity: 0.95;
+    }
 
-/* ── Scrollbars ─────────────────────────────────────────────────── */
-::-webkit-scrollbar{width:6px;height:6px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:4px;}
-::-webkit-scrollbar-thumb:hover{background:hsl(220 20% 25%);}
-</style>
+    /* ── Data tables ────────────────────────────────────────────────── */
+    .tbl-wrap {
+      border: 1px solid hsl(var(--border));
+      border-radius: .5rem;
+      overflow: hidden;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .78rem;
+    }
+
+    .data-table th {
+      background: rgba(255, 255, 255, 0.02);
+      color: hsl(var(--text-muted));
+      text-align: left;
+      padding: .65rem .95rem;
+      font-size: .67rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      border-bottom: 1px solid hsl(var(--border));
+      white-space: nowrap;
+    }
+
+    .data-table td {
+      padding: .6rem .95rem;
+      border-bottom: 1px solid hsl(var(--border)/.4);
+      vertical-align: top;
+      word-break: break-all;
+      color: hsl(var(--text-primary));
+    }
+
+    .data-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .data-table tr:hover td {
+      background: hsl(var(--border)/.2);
+    }
+
+    .data-table .mono {
+      font-family: var(--font-mono);
+      font-size: .7rem;
+      color: hsl(var(--text-primary));
+      opacity: 0.95;
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+      font-size: .72rem;
+    }
+
+    /* ── Badges ─────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: .18rem .55rem;
+      border-radius: .25rem;
+      font-size: .62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      white-space: nowrap;
+    }
+
+    .badge-complete,
+    .badge-enabled {
+      background: hsl(var(--ok)/.12);
+      color: hsl(var(--ok));
+      border: 1px solid hsl(var(--ok)/.25);
+    }
+
+    .badge-failed,
+    .badge-disabled {
+      background: hsl(var(--danger)/.12);
+      color: hsl(var(--danger));
+      border: 1px solid hsl(var(--danger)/.25);
+    }
+
+    .badge-queued {
+      background: hsl(210 100% 56%/.12);
+      color: hsl(210 100% 65%);
+      border: 1px solid hsl(210 100% 56%/.25);
+    }
+
+    .badge-processing {
+      background: hsl(var(--warn)/.12);
+      color: hsl(var(--warn));
+      border: 1px solid hsl(var(--warn)/.25);
+    }
+
+    .badge-na {
+      background: hsl(220 15% 15%);
+      color: hsl(var(--text-dim));
+      border: 1px solid hsl(var(--border));
+    }
+
+    .badge-terminated {
+      background: hsl(0 0% 50%/.12);
+      color: hsl(0 0% 75%);
+      border: 1px solid hsl(0 0% 50%/.25);
+    }
+
+    .badge-flagged {
+      background: hsl(var(--danger)/.1);
+      color: #ff6b6b;
+      border: 1px solid hsl(var(--danger)/.2);
+    }
+
+    /* ── Score pills ────────────────────────────────────────────────── */
+    .score-pill {
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      font-weight: 700;
+      padding: .2rem .55rem;
+      border-radius: .25rem;
+    }
+
+    .score-malicious {
+      background: hsl(var(--danger)/.12);
+      color: #ff4d4d;
+      border: 1px solid hsl(var(--danger)/.25);
+      box-shadow: 0 0 10px hsl(var(--danger)/.1);
+    }
+
+    .score-highrisk {
+      background: hsl(30 100% 50%/.12);
+      color: #ff9500;
+      border: 1px solid hsl(30 100% 50%/.25);
+      box-shadow: 0 0 10px hsl(30 100% 50%/.1);
+    }
+
+    .score-suspicious {
+      background: hsl(var(--warn)/.12);
+      color: hsl(var(--warn));
+      border: 1px solid hsl(var(--warn)/.25);
+      box-shadow: 0 0 10px hsl(var(--warn)/.1);
+    }
+
+    .score-clean {
+      background: hsl(var(--ok)/.1);
+      color: hsl(var(--ok));
+      border: 1px solid hsl(var(--ok)/.2);
+      box-shadow: 0 0 10px hsl(var(--ok)/.05);
+    }
+
+    /* ── Verdict banner ─────────────────────────────────────────────── */
+    .verdict-banner {
+      padding: 1.25rem 1.5rem;
+      border-radius: var(--r);
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 1.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .verdict-malicious {
+      background: linear-gradient(135deg, hsl(var(--danger)/.08) 0%, hsl(var(--bg-card)) 100%);
+      border: 1px solid hsl(var(--danger)/.3);
+    }
+
+    .verdict-highrisk {
+      background: linear-gradient(135deg, hsl(30 100% 50%/.08) 0%, hsl(var(--bg-card)) 100%);
+      border: 1px solid hsl(30 100% 50%/.3);
+    }
+
+    .verdict-suspicious {
+      background: linear-gradient(135deg, hsl(var(--warn)/.08) 0%, hsl(var(--bg-card)) 100%);
+      border: 1px solid hsl(var(--warn)/.3);
+    }
+
+    .verdict-clean {
+      background: linear-gradient(135deg, hsl(var(--ok)/.08) 0%, hsl(var(--bg-card)) 100%);
+      border: 1px solid hsl(var(--ok)/.3);
+    }
+
+    .verdict-label {
+      font-size: 1.75rem;
+      font-weight: 800;
+      font-family: var(--font-mono);
+      letter-spacing: -.02em;
+      text-shadow: 0 0 15px currentColor;
+    }
+
+    .verdict-score {
+      font-size: .78rem;
+      color: hsl(var(--text-muted));
+      font-weight: 500;
+    }
+
+    /* ── Gauge ──────────────────────────────────────────────────────── */
+    .gauge-track {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 1rem;
+      height: 10px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .gauge-fill {
+      height: 100%;
+      border-radius: 1rem;
+      transition: width .8s cubic-bezier(.4, 0, .2, 1);
+      box-shadow: 0 0 10px currentColor;
+      background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%);
+    }
+
+    /* ── Section tabs ───────────────────────────────────────────────── */
+    .section-tabs {
+      display: flex;
+      gap: .4rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .stab {
+      padding: .45rem .95rem;
+      border-radius: .4rem;
+      border: 1px solid hsl(var(--border));
+      background: transparent;
+      color: hsl(var(--text-muted));
+      font-size: .72rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      transition: all .15s ease;
+    }
+
+    .stab:hover {
+      background: hsl(var(--border)/.4);
+      color: hsl(var(--text-primary));
+      border-color: hsl(var(--text-dim));
+    }
+
+    .stab.active {
+      background: hsl(var(--accent)/.15);
+      color: hsl(var(--accent));
+      border-color: hsl(var(--accent)/.4);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .section-panel {
+      display: none;
+    }
+
+    .section-panel.active {
+      display: block;
+    }
+
+    /* ── Download buttons ───────────────────────────────────────────── */
+    .dl-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      padding: .55rem 1.15rem;
+      border-radius: .45rem;
+      border: 1px solid;
+      font-size: .78rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all .15s ease;
+      white-space: nowrap;
+    }
+
+    .dl-btn-json {
+      border-color: hsl(var(--accent)/.35);
+      color: hsl(var(--accent));
+      background: hsl(var(--accent)/.06);
+    }
+
+    .dl-btn-json:hover {
+      background: hsl(var(--accent)/.15);
+      box-shadow: var(--shadow-glow);
+      transform: translateY(-1px);
+    }
+
+    .dl-btn-pdf {
+      border-color: hsl(var(--danger)/.35);
+      color: #ff5f5f;
+      background: hsl(var(--danger)/.06);
+    }
+
+    .dl-btn-pdf:hover {
+      background: hsl(var(--danger)/.15);
+      box-shadow: 0 0 15px hsl(var(--danger)/.15);
+      transform: translateY(-1px);
+    }
+
+    .dl-btn-pcap {
+      border-color: hsl(210 100% 56%/.35);
+      color: hsl(210 100% 68%);
+      background: hsl(210 100% 56%/.06);
+    }
+
+    .dl-btn-pcap:hover {
+      background: hsl(210 100% 56%/.15);
+      box-shadow: 0 0 15px rgba(30, 144, 255, 0.15);
+      transform: translateY(-1px);
+    }
+
+    /* ── YARA ───────────────────────────────────────────────────────── */
+    .yara-rule {
+      display: inline-block;
+      margin: .25rem .2rem;
+      padding: .25rem .75rem;
+      background: hsl(var(--danger)/.08);
+      color: #ff5555;
+      border: 1px solid hsl(var(--danger)/.25);
+      border-radius: .3rem;
+      font-size: .7rem;
+      font-family: var(--font-mono);
+      box-shadow: 0 0 10px rgba(255, 0, 0, 0.05);
+    }
+
+    /* ── Terminal log ────────────────────────────────────────────────── */
+    .log-box {
+      background: #03050a;
+      border: 1px solid hsl(var(--border));
+      border-radius: .5rem;
+      padding: 1rem 1.25rem;
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      line-height: 1.7;
+      overflow-y: auto;
+      color: #39ff14;
+      max-height: 400px;
+      box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.8);
+      white-space: pre-wrap;
+    }
+
+    /* ── Scrollbars ─────────────────────────────────────────────────── */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: hsl(var(--border));
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: hsl(220 20% 25%);
+    }
+  </style>
 </head>
+
 <body>
-<header style="padding:.85rem 1.5rem;">
-  <div class="logo-container">
-    <div class="logo-badge">MARS</div>
-    <div>
-      <h1 class="logo-title" style="font-size:1.1rem;">Analysis Report</h1>
-      <p class="logo-subtitle">{{ record.filename }}</p>
-    </div>
-  </div>
-  <div style="display:flex;align-items:center;gap:.75rem;">
-    <a href="/" style="padding:.45rem .95rem;border-radius:.4rem;border:1px solid hsl(var(--border));color:hsl(var(--text-muted));text-decoration:none;font-size:.72rem;font-weight:600;transition:all .15s ease;">← Dashboard</a>
-    <a href="/download/report/json/{{ record.sha256_hash }}" class="dl-btn dl-btn-json" download>⬇ JSON</a>
-    <a href="/download/report/pdf/{{ record.sha256_hash }}" class="dl-btn dl-btn-pdf" download>⬇ PDF</a>
-    {% if pcap_exists %}
-    <a href="/download/pcap/{{ record.sha256_hash }}" class="dl-btn dl-btn-pcap" download>⬇ PCAP</a>
-    {% endif %}
-  </div>
-</header>
-
-<div class="container">
-
-  <!-- Verdict banner -->
-  {% set score_f = (record.risk_score / 10.0) if record.risk_score is not none else 0 %}
-  {% set verdict = 'MALICIOUS' if score_f >= 7.5 else 'HIGH RISK' if score_f >= 5.0 else 'SUSPICIOUS' if score_f >= 3.0 else 'CLEAN' %}
-  {% set v_class = 'verdict-malicious' if score_f >= 7.5 else 'verdict-highrisk' if score_f >= 5.0 else 'verdict-suspicious' if score_f >= 3.0 else 'verdict-clean' %}
-  {% set v_color = '#ff4444' if score_f >= 7.5 else '#ff9500' if score_f >= 5.0 else '#ffd966' if score_f >= 3.0 else '#4ade80' %}
-
-  <div class="verdict-banner {{ v_class }}">
-    <div>
-      <div style="font-size:1.6rem;font-weight:800;font-family:var(--font-mono);color:{{ v_color }};">{{ verdict }}</div>
-      <div style="font-size:.72rem;color:#64748b;">Threat Verdict</div>
-    </div>
-    <div style="flex:1;">
-      <div style="display:flex;justify-content:space-between;font-size:.72rem;color:#64748b;margin-bottom:.4rem;">
-        <span>Risk Score</span><span style="font-family:var(--font-mono);color:{{ v_color }};">{{ '%.1f'|format(score_f) }} / 10.0</span>
+  <header style="padding:.85rem 1.5rem;">
+    <div class="logo-container">
+      <div class="logo-badge">MARS</div>
+      <div>
+        <h1 class="logo-title" style="font-size:1.1rem;">Analysis Report</h1>
+        <p class="logo-subtitle">{{ record.filename }}</p>
       </div>
-      <div class="gauge-track"><div class="gauge-fill" style="width:{{ score_f*10 }}%;background:{{ v_color }};"></div></div>
     </div>
-    <div style="text-align:right;">
-      <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.25rem;">{{ record.filename }}</div>
-      <div style="font-size:.68rem;color:#475569;">{{ record.timestamp.strftime('%Y-%m-%d %H:%M:%S') if record.timestamp else 'N/A' }}</div>
-      <span class="badge badge-{{ record.status.lower() }}" style="margin-top:.35rem;">{{ record.status }}</span>
-    </div>
-  </div>
-
-  <!-- Section tabs -->
-  <div class="section-tabs">
-    <button class="stab active" onclick="switchTab('intake')">📁 File Intake</button>
-    <button class="stab" onclick="switchTab('static')">📄 Static Analysis</button>
-    <button class="stab" onclick="switchTab('dynamic')">⚡ Dynamic</button>
-    <button class="stab" onclick="switchTab('scoring')">📊 Scoring</button>
-    {% if extracted_files %}<button class="stab" onclick="switchTab('artifacts')">📦 Artifacts</button>{% endif %}
-    {% if mem_sess and mem_sess.get('logs') %}<button class="stab" onclick="switchTab('logs')">📋 Logs</button>{% endif %}
-  </div>
-
-  <!-- INTAKE -->
-  <div class="section-panel active" id="tab-intake">
-    <div class="card">
-      <div class="card-title">📁 File Intake Summary</div>
-      {% if report_data and report_data.get('metadata') %}
-        {% for k, v in report_data.metadata.items() %}
-        <div class="kv-row"><div class="kv-key">{{ k }}</div><div class="kv-val">{{ v }}</div></div>
-        {% endfor %}
-      {% elif mem_sess and mem_sess.get('results_store', {}).get('Intake') %}
-        {% for k, v in mem_sess.results_store.Intake.items() %}
-        <div class="kv-row"><div class="kv-key">{{ k }}</div><div class="kv-val">{{ v }}</div></div>
-        {% endfor %}
-      {% else %}
-        <div class="kv-row"><div class="kv-key">SHA-256</div><div class="kv-val">{{ record.sha256_hash }}</div></div>
-        <div class="kv-row"><div class="kv-key">Filename</div><div class="kv-val">{{ record.filename }}</div></div>
-        <div class="kv-row"><div class="kv-key">Status</div><div class="kv-val">{{ record.status }}</div></div>
-        <div class="kv-row"><div class="kv-key">Risk Score</div><div class="kv-val">{{ '%.1f'|format(score_f) }} / 10.0</div></div>
-        <div class="kv-row"><div class="kv-key">Timestamp</div><div class="kv-val">{{ record.timestamp.strftime('%Y-%m-%d %H:%M:%S') if record.timestamp else 'N/A' }}</div></div>
+    <div style="display:flex;align-items:center;gap:.75rem;">
+      <a href="/"
+        style="padding:.45rem .95rem;border-radius:.4rem;border:1px solid hsl(var(--border));color:hsl(var(--text-muted));text-decoration:none;font-size:.72rem;font-weight:600;transition:all .15s ease;">←
+        Dashboard</a>
+      <a href="/download/report/json/{{ record.sha256_hash }}" class="dl-btn dl-btn-json" download>⬇ JSON</a>
+      <a href="/download/report/pdf/{{ record.sha256_hash }}" class="dl-btn dl-btn-pdf" download>⬇ PDF</a>
+      {% if pcap_exists %}
+      <a href="/download/pcap/{{ record.sha256_hash }}" class="dl-btn dl-btn-pcap" download>⬇ PCAP</a>
       {% endif %}
     </div>
-  </div>
+  </header>
 
-  <!-- STATIC -->
-  <div class="section-panel" id="tab-static">
-    {% set static_data = report_data.get('static_analysis', {}) if report_data else {} %}
-    {% set mem_static = mem_sess.get('results_store', {}) if mem_sess else {} %}
+  <div class="container">
 
-    {% if static_data %}
+    <!-- Verdict banner -->
+    {% set score_f = (record.risk_score / 10.0) if record.risk_score is not none else 0 %}
+    {% set verdict = 'MALICIOUS' if score_f >= 7.5 else 'HIGH RISK' if score_f >= 5.0 else 'SUSPICIOUS' if score_f >=
+    3.0 else 'CLEAN' %}
+    {% set v_class = 'verdict-malicious' if score_f >= 7.5 else 'verdict-highrisk' if score_f >= 5.0 else
+    'verdict-suspicious' if score_f >= 3.0 else 'verdict-clean' %}
+    {% set v_color = '#ff4444' if score_f >= 7.5 else '#ff9500' if score_f >= 5.0 else '#ffd966' if score_f >= 3.0 else
+    '#4ade80' %}
+
+    <div class="verdict-banner {{ v_class }}">
+      <div>
+        <div style="font-size:1.6rem;font-weight:800;font-family:var(--font-mono);color:{{ v_color }};">{{ verdict }}
+        </div>
+        <div style="font-size:.72rem;color:#64748b;">Threat Verdict</div>
+      </div>
+      <div style="flex:1;">
+        <div style="display:flex;justify-content:space-between;font-size:.72rem;color:#64748b;margin-bottom:.4rem;">
+          <span>Risk Score</span><span style="font-family:var(--font-mono);color:{{ v_color }};">{{
+            '%.1f'|format(score_f) }} / 10.0</span>
+        </div>
+        <div class="gauge-track">
+          <div class="gauge-fill" style="width:{{ score_f*10 }}%;background:{{ v_color }};"></div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.25rem;">{{ record.filename }}</div>
+        <div style="font-size:.68rem;color:#475569;">{{ record.timestamp.strftime('%Y-%m-%d %H:%M:%S') if
+          record.timestamp else 'N/A' }}</div>
+        <span class="badge badge-{{ record.status.lower() }}" style="margin-top:.35rem;">{{ record.status }}</span>
+      </div>
+    </div>
+
+    <!-- Section tabs -->
+    <div class="section-tabs">
+      <button class="stab active" onclick="switchTab('intake')">📁 File Intake</button>
+      <button class="stab" onclick="switchTab('static')">📄 Static Analysis</button>
+      <button class="stab" onclick="switchTab('dynamic')">⚡ Dynamic</button>
+      <button class="stab" onclick="switchTab('scoring')">📊 Scoring</button>
+      {% if extracted_files %}<button class="stab" onclick="switchTab('artifacts')">📦 Artifacts</button>{% endif %}
+      {% if mem_sess and mem_sess.get('logs') %}<button class="stab" onclick="switchTab('logs')">📋 Logs</button>{%
+      endif %}
+    </div>
+
+    <!-- INTAKE -->
+    <div class="section-panel active" id="tab-intake">
+      <div class="card">
+        <div class="card-title">📁 File Intake Summary</div>
+        {% if report_data and report_data.get('metadata') %}
+        {% for k, v in report_data.metadata.items() %}
+        <div class="kv-row">
+          <div class="kv-key">{{ k }}</div>
+          <div class="kv-val">{{ v }}</div>
+        </div>
+        {% endfor %}
+        {% elif mem_sess and mem_sess.get('results_store', {}).get('Intake') %}
+        {% for k, v in mem_sess.results_store.Intake.items() %}
+        <div class="kv-row">
+          <div class="kv-key">{{ k }}</div>
+          <div class="kv-val">{{ v }}</div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="kv-row">
+          <div class="kv-key">SHA-256</div>
+          <div class="kv-val">{{ record.sha256_hash }}</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">Filename</div>
+          <div class="kv-val">{{ record.filename }}</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">Status</div>
+          <div class="kv-val">{{ record.status }}</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">Risk Score</div>
+          <div class="kv-val">{{ '%.1f'|format(score_f) }} / 10.0</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">Timestamp</div>
+          <div class="kv-val">{{ record.timestamp.strftime('%Y-%m-%d %H:%M:%S') if record.timestamp else 'N/A' }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- STATIC -->
+    <div class="section-panel" id="tab-static">
+      {% set static_data = report_data.get('static_analysis', {}) if report_data else {} %}
+      {% set mem_static = mem_sess.get('results_store', {}) if mem_sess else {} %}
+
+      {% if static_data %}
       {% for target, categories in static_data.items() %}
       <div class="card">
         <div class="card-title">📄 {{ target }}</div>
         {% for category, cat_data in categories.items() %}
-          <div style="margin-bottom:.9rem;">
-            <div style="font-size:.75rem;font-weight:700;color:hsl(var(--accent));text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">{{ category }}</div>
-            {% if cat_data is mapping %}
-              {% for k, v in cat_data.items() %}
-              <div class="kv-row"><div class="kv-key">{{ k }}</div>
-              <div class="kv-val">
-                {% if 'Enabled' in v|string %}
-                  <span class="badge badge-enabled">{{ v }}</span>
-                {% elif 'Disabled' in v|string %}
-                  <span class="badge badge-disabled">{{ v }}</span>
-                {% else %}
-                  {{ v }}
-                {% endif %}
-              </div></div>
-              {% endfor %}
-            {% elif cat_data is iterable and cat_data is not string %}
-              {% for item in cat_data %}
-              <div style="font-family:var(--font-mono);font-size:.72rem;color:#c8d3e0;padding:.2rem 0;">• {{ item }}</div>
-              {% endfor %}
-            {% else %}
-              <div class="mono" style="color:#c8d3e0;">{{ cat_data }}</div>
-            {% endif %}
-          </div>
-        {% endfor %}
-      </div>
-      {% endfor %}
-    {% elif mem_static %}
-      <!-- Render from in-memory session results_store -->
-      {% for module_key, data in mem_static.items() %}
-        {% if 'Static:' in module_key %}
-        <div class="card">
-          <div class="card-title">{{ module_key }}</div>
-          {% if data is mapping %}
-            {% for k, v in data.items() %}
-            <div class="kv-row"><div class="kv-key">{{ k }}</div>
+        <div style="margin-bottom:.9rem;">
+          <div
+            style="font-size:.75rem;font-weight:700;color:hsl(var(--accent));text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">
+            {{ category }}</div>
+          {% if cat_data is mapping %}
+          {% for k, v in cat_data.items() %}
+          <div class="kv-row">
+            <div class="kv-key">{{ k }}</div>
             <div class="kv-val">
               {% if 'Enabled' in v|string %}
-                <span class="badge badge-enabled">{{ v }}</span>
+              <span class="badge badge-enabled">{{ v }}</span>
               {% elif 'Disabled' in v|string %}
-                <span class="badge badge-disabled">{{ v }}</span>
-              {% else %}{{ v }}{% endif %}
-            </div></div>
-            {% endfor %}
-          {% endif %}
-        </div>
-        {% endif %}
-      {% endfor %}
-    {% else %}
-      <div class="card"><p style="color:#475569;font-size:.85rem;text-align:center;padding:2rem;">No static analysis data available for this record.</p></div>
-    {% endif %}
-  </div>
-
-  <!-- DYNAMIC -->
-  <div class="section-panel" id="tab-dynamic">
-    {% set dyn_data = report_data.get('dynamic_analysis', {}) if report_data else {} %}
-    {% if dyn_data %}
-      {% for target, categories in dyn_data.items() %}
-      <div class="card">
-        <div class="card-title">⚡ {{ target }}</div>
-        
-        {% if 'process_tree_generation' in categories %}
-
-          <!-- Dynamic Overview Stats Row -->
-          {% set fs_count = (categories.file_system_monitoring.files_created|length + categories.file_system_monitoring.files_modified|length + categories.file_system_monitoring.files_deleted|length + categories.file_system_monitoring.files_renamed|length) if categories.file_system_monitoring else 0 %}
-          {% set reg_count = categories.registry_monitoring.total_changes if categories.registry_monitoring else 0 %}
-          {% set pers_count = categories.persistence_analysis.total_persistence_entries if categories.persistence_analysis else 0 %}
-          {% set net_count = categories.network_communication_analysis.summary.total_connections if categories.network_communication_analysis else 0 %}
-          {% set dll_count = categories.dll_signature_monitoring.unsigned_dlls_count if categories.dll_signature_monitoring else 0 %}
-          {% set proc_count = categories.get('Processes', [])|length %}
-
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem;margin-bottom:1.25rem;">
-            <div style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-              <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">File Changes</div>
-              <div style="font-size:1.3rem;font-weight:800;color:{{ '#ff6b6b' if fs_count > 0 else '#4ade80' }};font-family:var(--font-mono);">{{ fs_count }}</div>
-            </div>
-            <div style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-              <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Registry Muts</div>
-              <div style="font-size:1.3rem;font-weight:800;color:{{ '#ff6b6b' if reg_count > 0 else '#4ade80' }};font-family:var(--font-mono);">{{ reg_count }}</div>
-            </div>
-            <div style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-              <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Persistence</div>
-              <div style="font-size:1.3rem;font-weight:800;color:{{ '#ff4444' if pers_count > 0 else '#4ade80' }};font-family:var(--font-mono);">{{ pers_count }}</div>
-            </div>
-            <div style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-              <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Network Conns</div>
-              <div style="font-size:1.3rem;font-weight:800;color:{{ '#ff9500' if net_count > 0 else '#4ade80' }};font-family:var(--font-mono);">{{ net_count }}</div>
-            </div>
-            <div style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-              <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Unsigned DLLs</div>
-              <div style="font-size:1.3rem;font-weight:800;color:{{ '#ff4444' if dll_count > 0 else '#4ade80' }};font-family:var(--font-mono);">{{ dll_count }}</div>
-            </div>
-            <div style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-              <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Processes</div>
-              <div style="font-size:1.3rem;font-weight:800;color:{{ '#ffd966' if proc_count > 0 else '#4ade80' }};font-family:var(--font-mono);">{{ proc_count }}</div>
-            </div>
-          </div>
-
-          <!-- Sub-tabs for target detonation details -->
-          <div class="section-tabs" style="margin-bottom:1.25rem;">
-            <button class="stab active" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-tree')">🌳 Process Tree</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-fs')">📂 File System</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-reg')">🗝 Registry</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-pers')">🔒 Persistence</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-net')">🌐 Network</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-dll')">🛡 DLL Signatures</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-res')">🖥 Resources</button>
-            <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-raw')">📋 Raw Telemetry</button>
-          </div>
-
-          <!-- A. Process Tree Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-tree">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Process Spawn Hierarchy</h4>
-            <div style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.9rem;font-family:var(--font-mono);font-size:.73rem;overflow-x:auto;">
-              {% macro render_proc_node(node) %}
-                <div style="margin-left:1.5rem;padding-left:.5rem;border-left:1px dashed #475569;position:relative;margin-top:.25rem;">
-                  <span style="color:#ffd966;font-weight:700;">{{ node.process_name }}</span> 
-                  <span style="color:#64748b;font-size:.68rem;">(PID: {{ node.pid }} / PPID: {{ node.ppid }})</span>
-                  {% if node.command_line %}
-                    <span style="color:#94a3b8;font-size:.68rem;background:#1e293b;padding:.1rem .35rem;border-radius:.25rem;word-break:break-all;">{{ node.command_line }}</span>
-                  {% endif %}
-                  {% for child in node.children %}
-                    {{ render_proc_node(child) }}
-                  {% endfor %}
-                </div>
-              {% endmacro %}
-              
-              {% set tree = categories.process_tree_generation.tree %}
-              {% if tree %}
-                <div style="margin-left:-1.5rem;">
-                  {{ render_proc_node(tree) }}
-                </div>
+              <span class="badge badge-disabled">{{ v }}</span>
               {% else %}
-                <p style="color:#64748b;">No process tree available.</p>
+              {{ v }}
               {% endif %}
             </div>
           </div>
-
-          <!-- B. File System Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-fs" style="display:none;">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">File Operations</h4>
-            {% set fs = categories.file_system_monitoring %}
-            <table class="data-table">
-              <thead><tr><th>File Path</th><th style="width:140px;">Action</th></tr></thead>
-              <tbody>
-                {% for f in fs.files_created %}
-                  <tr><td class="mono">{{ f }}</td><td><span class="badge badge-enabled">Created</span></td></tr>
-                {% endfor %}
-                {% for f in fs.files_modified %}
-                  <tr><td class="mono">{{ f }}</td><td><span class="badge badge-processing">Modified</span></td></tr>
-                {% endfor %}
-                {% for f in fs.files_deleted %}
-                  <tr><td class="mono">{{ f }}</td><td><span class="badge badge-failed">Deleted</span></td></tr>
-                {% endfor %}
-                {% for f in fs.files_renamed %}
-                  <tr><td class="mono">{{ f }}</td><td><span class="badge badge-queued">Renamed</span></td></tr>
-                {% endfor %}
-                {% if not fs.files_created and not fs.files_modified and not fs.files_deleted and not fs.files_renamed %}
-                  <tr><td colspan="2" class="empty-state">No file system changes captured.</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
+          {% endfor %}
+          {% elif cat_data is iterable and cat_data is not string %}
+          {% for item in cat_data %}
+          <div style="font-family:var(--font-mono);font-size:.72rem;color:#c8d3e0;padding:.2rem 0;">• {{ item }}</div>
+          {% endfor %}
+          {% else %}
+          <div class="mono" style="color:#c8d3e0;">{{ cat_data }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      {% elif mem_static %}
+      <!-- Render from in-memory session results_store -->
+      {% for module_key, data in mem_static.items() %}
+      {% if 'Static:' in module_key %}
+      <div class="card">
+        <div class="card-title">{{ module_key }}</div>
+        {% if data is mapping %}
+        {% for k, v in data.items() %}
+        <div class="kv-row">
+          <div class="kv-key">{{ k }}</div>
+          <div class="kv-val">
+            {% if 'Enabled' in v|string %}
+            <span class="badge badge-enabled">{{ v }}</span>
+            {% elif 'Disabled' in v|string %}
+            <span class="badge badge-disabled">{{ v }}</span>
+            {% else %}{{ v }}{% endif %}
           </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% else %}
+      <div class="card">
+        <p style="color:#475569;font-size:.85rem;text-align:center;padding:2rem;">No static analysis data available for
+          this record.</p>
+      </div>
+      {% endif %}
+    </div>
 
-          <!-- C. Registry Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-reg" style="display:none;">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Registry Mutations</h4>
-            {% set reg = categories.registry_monitoring %}
-            <table class="data-table">
-              <thead><tr><th>Registry Key/Value</th><th style="width:140px;">Action</th><th>Data Details</th></tr></thead>
-              <tbody>
-                {% for val in reg.values_added %}
-                  <tr><td class="mono">{{ val.path }}</td><td><span class="badge badge-enabled">Added</span></td><td class="mono">{{ val.data }} ({{ val.type }})</td></tr>
-                {% endfor %}
-                {% for val in reg.values_modified %}
-                  <tr><td class="mono">{{ val.path }}</td><td><span class="badge badge-processing">Modified</span></td><td class="mono">{{ val.data }} ({{ val.type }})</td></tr>
-                {% endfor %}
-                {% for v in reg.values_deleted %}
-                  <tr><td class="mono">{{ v }}</td><td><span class="badge badge-failed">Val Deleted</span></td><td>—</td></tr>
-                {% endfor %}
-                {% for k in reg.keys_deleted %}
-                  <tr><td class="mono">{{ k }}</td><td><span class="badge badge-failed">Key Deleted</span></td><td>—</td></tr>
-                {% endfor %}
-                {% if not reg.values_added and not reg.values_modified and not reg.values_deleted and not reg.keys_deleted %}
-                  <tr><td colspan="3" class="empty-state">No registry mutations captured.</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
+    <!-- DYNAMIC -->
+    <div class="section-panel" id="tab-dynamic">
+      {% set dyn_data = report_data.get('dynamic_analysis', {}) if report_data else {} %}
+      {% if dyn_data %}
+      {% for target, categories in dyn_data.items() %}
+      <div class="card">
+        <div class="card-title">⚡ {{ target }}</div>
+
+        {% if 'process_tree_generation' in categories %}
+
+        <!-- Dynamic Overview Stats Row -->
+        {% set fs_count = (categories.file_system_monitoring.files_created|length +
+        categories.file_system_monitoring.files_modified|length + categories.file_system_monitoring.files_deleted|length
+        + categories.file_system_monitoring.files_renamed|length) if categories.file_system_monitoring else 0 %}
+        {% set reg_count = categories.registry_monitoring.total_changes if categories.registry_monitoring else 0 %}
+        {% set pers_count = categories.persistence_analysis.total_persistence_entries if categories.persistence_analysis
+        else 0 %}
+        {% set net_count = categories.network_communication_analysis.summary.total_connections if
+        categories.network_communication_analysis else 0 %}
+        {% set dll_count = categories.dll_signature_monitoring.unsigned_dlls_count if
+        categories.dll_signature_monitoring else 0 %}
+        {% set proc_count = categories.get('Processes', [])|length %}
+
+        <div
+          style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem;margin-bottom:1.25rem;">
+          <div
+            style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+            <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">
+              File Changes</div>
+            <div
+              style="font-size:1.3rem;font-weight:800;color:{{ '#ff6b6b' if fs_count > 0 else '#4ade80' }};font-family:var(--font-mono);">
+              {{ fs_count }}</div>
           </div>
-
-          <!-- D. Network Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-net" style="display:none;">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Network Communication Intercepts</h4>
-            {% set net = categories.network_communication_analysis %}
-            <table class="data-table">
-              <thead><tr><th>Protocol</th><th>Engine</th><th>Port</th><th>Direction</th><th>Action Details</th><th>Raw Hex</th></tr></thead>
-              <tbody>
-                {% for conn in net.details %}
-                  <tr>
-                    <td class="mono" style="font-weight:700;color:hsl(var(--accent));">{{ conn.protocol }}</td>
-                    <td style="color:#94a3b8;">{{ conn.tool }}</td>
-                    <td class="mono">{{ conn.dst_port }}</td>
-                    <td><span class="badge badge-queued">{{ conn.direction }}</span></td>
-                    <td>{{ conn.scapy_action }}</td>
-                    <td class="mono" style="font-size:.65rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ conn.raw_hex }}">{{ conn.raw_hex }}</td>
-                  </tr>
-                {% endfor %}
-                {% if not net.details %}
-                  <tr><td colspan="6" class="empty-state">No network connections intercepted.</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
+          <div
+            style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+            <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">
+              Registry Muts</div>
+            <div
+              style="font-size:1.3rem;font-weight:800;color:{{ '#ff6b6b' if reg_count > 0 else '#4ade80' }};font-family:var(--font-mono);">
+              {{ reg_count }}</div>
           </div>
-
-          <!-- E. DLL Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-dll" style="display:none;">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Loaded DLL Verification</h4>
-            {% set dlls = categories.dll_signature_monitoring %}
-            <table class="data-table">
-              <thead><tr><th>DLL Name</th><th>DLL Path</th><th style="width:110px;">Signature</th><th>SHA-256</th><th>Risk Indicators</th></tr></thead>
-              <tbody>
-                {% for d in dlls.details %}
-                  {% set is_unsigned = d.signature_status == 'UNSIGNED' %}
-                  <tr>
-                    <td class="mono" style="font-weight:700;">{{ d.dll_name }}</td>
-                    <td class="mono" style="font-size:.68rem;color:#94a3b8;">{{ d.dll_path }}</td>
-                    <td><span class="badge {{ 'badge-failed' if is_unsigned else 'badge-enabled' }}">{{ d.signature_status }}</span></td>
-                    <td class="mono" style="font-size:.68rem;">{{ d.sha256[:16] }}…</td>
-                    <td style="font-size:.7rem;color:#ff6b6b;">{{ d.risk_indicators|join(', ') }}</td>
-                  </tr>
-                {% endfor %}
-                {% if not dlls.details %}
-                  <tr><td colspan="5" class="empty-state">No loaded DLLs tracked.</td></tr>
-                {% endif %}
-              </tbody>
-            </table>
+          <div
+            style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+            <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">
+              Persistence</div>
+            <div
+              style="font-size:1.3rem;font-weight:800;color:{{ '#ff4444' if pers_count > 0 else '#4ade80' }};font-family:var(--font-mono);">
+              {{ pers_count }}</div>
           </div>
+          <div
+            style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+            <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">
+              Network Conns</div>
+            <div
+              style="font-size:1.3rem;font-weight:800;color:{{ '#ff9500' if net_count > 0 else '#4ade80' }};font-family:var(--font-mono);">
+              {{ net_count }}</div>
+          </div>
+          <div
+            style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+            <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">
+              Unsigned DLLs</div>
+            <div
+              style="font-size:1.3rem;font-weight:800;color:{{ '#ff4444' if dll_count > 0 else '#4ade80' }};font-family:var(--font-mono);">
+              {{ dll_count }}</div>
+          </div>
+          <div
+            style="background:hsl(var(--bg-dark));padding:.65rem .75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+            <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">
+              Processes</div>
+            <div
+              style="font-size:1.3rem;font-weight:800;color:{{ '#ffd966' if proc_count > 0 else '#4ade80' }};font-family:var(--font-mono);">
+              {{ proc_count }}</div>
+          </div>
+        </div>
 
-          <!-- E2. Persistence Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-pers" style="display:none;">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Persistence Mechanism Detection</h4>
-            {% set pers = categories.persistence_analysis %}
-            {% if pers and pers.details %}
-            <table class="data-table">
-              <thead><tr><th>Category</th><th>Mechanism</th><th>Target Path</th><th>Command</th><th>Detection Method</th></tr></thead>
-              <tbody>
-                {% for entry in pers.details %}
-                <tr>
-                  <td>
-                    {% if entry.category == 'registry_run' %}
-                      <span class="badge badge-failed">🗝 Registry Run</span>
-                    {% elif entry.category == 'startup_file' %}
-                      <span class="badge badge-processing">📁 Startup File</span>
-                    {% elif entry.category == 'scheduled_task' %}
-                      <span class="badge badge-queued">⏰ Scheduled Task</span>
-                    {% elif entry.category == 'service' %}
-                      <span class="badge badge-flagged">⚙ Service</span>
-                    {% else %}
-                      <span class="badge badge-na">{{ entry.category }}</span>
-                    {% endif %}
-                  </td>
-                  <td style="font-size:.75rem;font-weight:600;color:#e2e8f0;">{{ entry.mechanism }}</td>
-                  <td class="mono" style="font-size:.68rem;color:#94a3b8;">{{ entry.target_path }}</td>
-                  <td class="mono" style="font-size:.68rem;">{{ entry.command }}</td>
-                  <td style="font-size:.7rem;color:#64748b;">{{ entry.detection_method }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+        <!-- Sub-tabs for target detonation details -->
+        <div class="section-tabs" style="margin-bottom:1.25rem;">
+          <button class="stab active" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-tree')">🌳 Process
+            Tree</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-fs')">📂 File
+            System</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-reg')">🗝 Registry</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-pers')">🔒
+            Persistence</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-net')">🌐 Network</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-dll')">🛡 DLL
+            Signatures</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-res')">🖥 Resources</button>
+          <button class="stab" onclick="switchSubTab(event, '{{ target|replace('.', '_') }}-raw')">📋 Raw
+            Telemetry</button>
+        </div>
+
+        <!-- A. Process Tree Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-tree">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Process Spawn Hierarchy</h4>
+          <div
+            style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.9rem;font-family:var(--font-mono);font-size:.73rem;overflow-x:auto;">
+            {% macro render_proc_node(node) %}
+            <div
+              style="margin-left:1.5rem;padding-left:.5rem;border-left:1px dashed #475569;position:relative;margin-top:.25rem;">
+              <span style="color:#ffd966;font-weight:700;">{{ node.process_name }}</span>
+              <span style="color:#64748b;font-size:.68rem;">(PID: {{ node.pid }} / PPID: {{ node.ppid }})</span>
+              {% if node.command_line %}
+              <span
+                style="color:#94a3b8;font-size:.68rem;background:#1e293b;padding:.1rem .35rem;border-radius:.25rem;word-break:break-all;">{{
+                node.command_line }}</span>
+              {% endif %}
+              {% for child in node.children %}
+              {{ render_proc_node(child) }}
+              {% endfor %}
+            </div>
+            {% endmacro %}
+
+            {% set tree = categories.process_tree_generation.tree %}
+            {% if tree %}
+            <div style="margin-left:-1.5rem;">
+              {{ render_proc_node(tree) }}
+            </div>
             {% else %}
-              <div style="text-align:center;padding:2rem;color:#475569;font-size:.82rem;">No persistence mechanisms detected during analysis.</div>
+            <p style="color:#64748b;">No process tree available.</p>
             {% endif %}
           </div>
+        </div>
 
-          <!-- F. Resources Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-res" style="display:none;">
-            {% set res = categories.resource_utility_monitoring %}
-            {% set targetId = target|replace('.', '_') %}
-            
-            <div style="display:flex;gap:1.5rem;margin-bottom:1rem;">
-              <div style="flex:1;background:hsl(var(--bg-dark));padding:.75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-                <div style="font-size:.68rem;color:#64748b;">Peak CPU Usage</div>
-                <div style="font-size:1.4rem;font-weight:800;color:hsl(var(--danger));font-family:var(--font-mono);">{{ res.summary.peak_cpu_percent }}%</div>
-              </div>
-              <div style="flex:1;background:hsl(var(--bg-dark));padding:.75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
-                <div style="font-size:.68rem;color:#64748b;">Peak Memory Footprint</div>
-                <div style="font-size:1.4rem;font-weight:800;color:hsl(var(--accent));font-family:var(--font-mono);">{{ (res.summary.peak_memory_bytes / 1048576)|round(2) }} MB</div>
-              </div>
+        <!-- B. File System Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-fs" style="display:none;">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">File Operations</h4>
+          {% set fs = categories.file_system_monitoring %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>File Path</th>
+                <th style="width:140px;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in fs.files_created %}
+              <tr>
+                <td class="mono">{{ f }}</td>
+                <td><span class="badge badge-enabled">Created</span></td>
+              </tr>
+              {% endfor %}
+              {% for f in fs.files_modified %}
+              <tr>
+                <td class="mono">{{ f }}</td>
+                <td><span class="badge badge-processing">Modified</span></td>
+              </tr>
+              {% endfor %}
+              {% for f in fs.files_deleted %}
+              <tr>
+                <td class="mono">{{ f }}</td>
+                <td><span class="badge badge-failed">Deleted</span></td>
+              </tr>
+              {% endfor %}
+              {% for f in fs.files_renamed %}
+              <tr>
+                <td class="mono">{{ f }}</td>
+                <td><span class="badge badge-queued">Renamed</span></td>
+              </tr>
+              {% endfor %}
+              {% if not fs.files_created and not fs.files_modified and not fs.files_deleted and not fs.files_renamed %}
+              <tr>
+                <td colspan="2" class="empty-state">No file system changes captured.</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- C. Registry Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-reg" style="display:none;">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Registry Mutations</h4>
+          {% set reg = categories.registry_monitoring %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Registry Key/Value</th>
+                <th style="width:140px;">Action</th>
+                <th>Data Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for val in reg.values_added %}
+              <tr>
+                <td class="mono">{{ val.path }}</td>
+                <td><span class="badge badge-enabled">Added</span></td>
+                <td class="mono">{{ val.data }} ({{ val.type }})</td>
+              </tr>
+              {% endfor %}
+              {% for val in reg.values_modified %}
+              <tr>
+                <td class="mono">{{ val.path }}</td>
+                <td><span class="badge badge-processing">Modified</span></td>
+                <td class="mono">{{ val.data }} ({{ val.type }})</td>
+              </tr>
+              {% endfor %}
+              {% for v in reg.values_deleted %}
+              <tr>
+                <td class="mono">{{ v }}</td>
+                <td><span class="badge badge-failed">Val Deleted</span></td>
+                <td>—</td>
+              </tr>
+              {% endfor %}
+              {% for k in reg.keys_deleted %}
+              <tr>
+                <td class="mono">{{ k }}</td>
+                <td><span class="badge badge-failed">Key Deleted</span></td>
+                <td>—</td>
+              </tr>
+              {% endfor %}
+              {% if not reg.values_added and not reg.values_modified and not reg.values_deleted and not reg.keys_deleted
+              %}
+              <tr>
+                <td colspan="3" class="empty-state">No registry mutations captured.</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- D. Network Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-net" style="display:none;">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Network Communication Intercepts</h4>
+          {% set net = categories.network_communication_analysis %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Protocol</th>
+                <th>Engine</th>
+                <th>Port</th>
+                <th>Direction</th>
+                <th>Action Details</th>
+                <th>Raw Hex</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for conn in net.details %}
+              <tr>
+                <td class="mono" style="font-weight:700;color:hsl(var(--accent));">{{ conn.protocol }}</td>
+                <td style="color:#94a3b8;">{{ conn.tool }}</td>
+                <td class="mono">{{ conn.dst_port }}</td>
+                <td><span class="badge badge-queued">{{ conn.direction }}</span></td>
+                <td>{{ conn.scapy_action }}</td>
+                <td class="mono"
+                  style="font-size:.65rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                  title="{{ conn.raw_hex }}">{{ conn.raw_hex }}</td>
+              </tr>
+              {% endfor %}
+              {% if not net.details %}
+              <tr>
+                <td colspan="6" class="empty-state">No network connections intercepted.</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- E. DLL Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-dll" style="display:none;">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Loaded DLL Verification</h4>
+          {% set dlls = categories.dll_signature_monitoring %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>DLL Name</th>
+                <th>DLL Path</th>
+                <th style="width:110px;">Signature</th>
+                <th>SHA-256</th>
+                <th>Risk Indicators</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in dlls.details %}
+              {% set is_unsigned = d.signature_status == 'UNSIGNED' %}
+              <tr>
+                <td class="mono" style="font-weight:700;">{{ d.dll_name }}</td>
+                <td class="mono" style="font-size:.68rem;color:#94a3b8;">{{ d.dll_path }}</td>
+                <td><span class="badge {{ 'badge-failed' if is_unsigned else 'badge-enabled' }}">{{ d.signature_status
+                    }}</span></td>
+                <td class="mono" style="font-size:.68rem;">{{ d.sha256[:16] }}…</td>
+                <td style="font-size:.7rem;color:#ff6b6b;">{{ d.risk_indicators|join(', ') }}</td>
+              </tr>
+              {% endfor %}
+              {% if not dlls.details %}
+              <tr>
+                <td colspan="5" class="empty-state">No loaded DLLs tracked.</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- E2. Persistence Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-pers" style="display:none;">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Persistence Mechanism Detection</h4>
+          {% set pers = categories.persistence_analysis %}
+          {% if pers and pers.details %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Mechanism</th>
+                <th>Target Path</th>
+                <th>Command</th>
+                <th>Detection Method</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in pers.details %}
+              <tr>
+                <td>
+                  {% if entry.category == 'registry_run' %}
+                  <span class="badge badge-failed">🗝 Registry Run</span>
+                  {% elif entry.category == 'startup_file' %}
+                  <span class="badge badge-processing">📁 Startup File</span>
+                  {% elif entry.category == 'scheduled_task' %}
+                  <span class="badge badge-queued">⏰ Scheduled Task</span>
+                  {% elif entry.category == 'service' %}
+                  <span class="badge badge-flagged">⚙ Service</span>
+                  {% else %}
+                  <span class="badge badge-na">{{ entry.category }}</span>
+                  {% endif %}
+                </td>
+                <td style="font-size:.75rem;font-weight:600;color:#e2e8f0;">{{ entry.mechanism }}</td>
+                <td class="mono" style="font-size:.68rem;color:#94a3b8;">{{ entry.target_path }}</td>
+                <td class="mono" style="font-size:.68rem;">{{ entry.command }}</td>
+                <td style="font-size:.7rem;color:#64748b;">{{ entry.detection_method }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div style="text-align:center;padding:2rem;color:#475569;font-size:.82rem;">No persistence mechanisms detected
+            during analysis.</div>
+          {% endif %}
+        </div>
+
+        <!-- F. Resources Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-res" style="display:none;">
+          {% set res = categories.resource_utility_monitoring %}
+          {% set targetId = target|replace('.', '_') %}
+
+          <div style="display:flex;gap:1.5rem;margin-bottom:1rem;">
+            <div
+              style="flex:1;background:hsl(var(--bg-dark));padding:.75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+              <div style="font-size:.68rem;color:#64748b;">Peak CPU Usage</div>
+              <div style="font-size:1.4rem;font-weight:800;color:hsl(var(--danger));font-family:var(--font-mono);">{{
+                res.summary.peak_cpu_percent }}%</div>
             </div>
-
-            <!-- Custom Dual-Axis Chart Card -->
-            <div style="background: hsl(var(--bg-card)); border: 1px solid hsl(var(--border-slate)); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1.25rem; position: relative;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
-                <div>
-                  <h4 style="font-size: 0.9rem; font-weight: 700; color: #e2e8f0; margin: 0;" id="chartTitle_{{ targetId }}">Resource Usage Breakdown</h4>
-                  <p style="font-size: 0.7rem; color: #64748b; margin-top: 0.2rem;">Real-time performance metrics gathered during sandbox execution</p>
-                </div>
-                
-                <!-- CPU sparkline card -->
-                <div style="display: flex; align-items: center; gap: 0.75rem; background: hsl(var(--bg-dark)); border: 1px solid hsl(var(--border-slate)); border-radius: 0.5rem; padding: 0.4rem 0.8rem;">
-                  <div style="display: flex; flex-direction: column;">
-                    <span style="font-size: 0.65rem; color: #ffd966; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">CPU</span>
-                    <span style="font-size: 1.1rem; font-weight: 800; color: #ffffff;" id="cpuVal_{{ targetId }}">0%</span>
-                  </div>
-                  <canvas id="cpuSparkline_{{ targetId }}" width="90" height="28" style="width: 90px; height: 28px;"></canvas>
-                </div>
-              </div>
-              
-              <div style="position: relative; height: 320px; width: 100%; margin-bottom: 0.5rem;">
-                <canvas id="resourceChart_{{ targetId }}"></canvas>
-                
-                <!-- Custom Legend -->
-                <div style="position: absolute; bottom: 15px; right: 15px; background: rgba(5, 5, 9, 0.95); border: 1px solid hsl(var(--border-slate)); border-radius: 0.375rem; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.65rem; font-family: var(--font-mono); pointer-events: none; z-index: 10;">
-                  <div style="display: flex; align-items: center; gap: 0.5rem;"><span style="display: inline-block; width: 12px; height: 3px; background: #4A90D9;"></span><span style="color: #4A90D9;">Blue Line = RAM (Memory) (MB)</span></div>
-                  <div style="display: flex; align-items: center; gap: 0.5rem;"><span style="display: inline-block; width: 12px; height: 3px; background: #ffd966;"></span><span style="color: #ffd966;">Yellow Line = CPU (%)</span></div>
-                  <div style="display: flex; align-items: center; gap: 0.5rem;"><span style="display: inline-block; width: 12px; height: 3px; background: #E05C5C;"></span><span style="color: #E05C5C;">Orange Line = Disk Write (B/s)</span></div>
-                  <div style="display: flex; align-items: center; gap: 0.5rem;"><span style="display: inline-block; width: 12px; height: 3px; background: #9B59B6;"></span><span style="color: #9B59B6;">Purple Line = Net Send (B/s)</span></div>
-                </div>
-              </div>
+            <div
+              style="flex:1;background:hsl(var(--bg-dark));padding:.75rem;border-radius:.375rem;border:1px solid hsl(var(--border-slate));">
+              <div style="font-size:.68rem;color:#64748b;">Peak Memory Footprint</div>
+              <div style="font-size:1.4rem;font-weight:800;color:hsl(var(--accent));font-family:var(--font-mono);">{{
+                (res.summary.peak_memory_bytes / 1048576)|round(2) }} MB</div>
             </div>
-
-            <!-- Collapsable raw performance table -->
-            <details style="margin-top: 1rem; border: 1px solid hsl(var(--border-slate)); border-radius: 0.375rem; background: hsl(var(--bg-dark));">
-              <summary style="padding: 0.55rem 0.75rem; font-size: 0.75rem; font-weight: 600; color: #94a3b8; cursor: pointer; user-select: none; outline: none;">
-                📊 View Raw Performance Data Table
-              </summary>
-              <div style="padding: 0.5rem 0.75rem; border-top: 1px solid hsl(var(--border-slate)/0.4); max-height: 250px; overflow-y: auto;">
-                <table class="data-table">
-                  <thead><tr><th>Elapsed Time</th><th>CPU %</th><th>Private Memory Bytes</th></tr></thead>
-                  <tbody>
-                    {% for r in res.time_series %}
-                      <tr>
-                        <td class="mono">{{ r.elapsed_seconds }}s</td>
-                        <td class="mono">{{ r.cpu_percent }}%</td>
-                        <td class="mono">{{ (r.memory_bytes / 1048576)|round(2) }} MB ({{ r.memory_bytes }} B)</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </details>
           </div>
 
-          <!-- G. Raw Telemetry Tab -->
-          <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-raw" style="display:none;">
-            <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.75rem;">Raw Event Telemetry Stream</h4>
-            <p style="font-size:.7rem;color:#475569;margin-bottom:1rem;">All captured events from the guest agent, organized by category. Use your browser's Ctrl+F to search.</p>
+          <!-- Custom Dual-Axis Chart Card -->
+          <div
+            style="background: hsl(var(--bg-card)); border: 1px solid hsl(var(--border-slate)); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1.25rem; position: relative;">
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h4 style="font-size: 0.9rem; font-weight: 700; color: #e2e8f0; margin: 0;"
+                  id="chartTitle_{{ targetId }}">Resource Usage Breakdown</h4>
+                <p style="font-size: 0.7rem; color: #64748b; margin-top: 0.2rem;">Real-time performance metrics gathered
+                  during sandbox execution</p>
+              </div>
 
-            {% set telem_cats = ['Filesystem', 'Registry', 'Persistence', 'Processes', 'Memory', 'Network', 'Hardware', 'System'] %}
-            {% for tcat in telem_cats %}
-              {% set tevents = categories.get(tcat, []) %}
-              {% if tevents %}
-              <details style="margin-bottom:.75rem;border:1px solid hsl(var(--border-slate));border-radius:.375rem;background:hsl(var(--bg-dark));" {% if loop.first %}open{% endif %}>
-                <summary style="padding:.5rem .75rem;font-size:.75rem;font-weight:700;cursor:pointer;user-select:none;outline:none;display:flex;align-items:center;gap:.5rem;">
-                  {% if tcat == 'Filesystem' %}<span style="color:#4ade80;">📂</span>
-                  {% elif tcat == 'Registry' %}<span style="color:#ffd966;">🗝</span>
-                  {% elif tcat == 'Persistence' %}<span style="color:#ff4444;">🔒</span>
-                  {% elif tcat == 'Processes' %}<span style="color:#60a5fa;">⚙</span>
-                  {% elif tcat == 'Memory' %}<span style="color:#c084fc;">🧠</span>
-                  {% elif tcat == 'Network' %}<span style="color:#22d3ee;">🌐</span>
-                  {% elif tcat == 'Hardware' %}<span style="color:#fb923c;">🖥</span>
-                  {% elif tcat == 'System' %}<span style="color:#94a3b8;">ℹ</span>
-                  {% endif %}
-                  <span style="color:#e2e8f0;">{{ tcat }}</span>
-                  <span style="font-family:var(--font-mono);font-size:.68rem;color:#64748b;">({{ tevents|length }} event{{ 's' if tevents|length != 1 else '' }})</span>
-                </summary>
-                <div style="padding:.5rem .75rem;border-top:1px solid hsl(var(--border-slate)/.4);max-height:300px;overflow-y:auto;">
-                  {% for ev in tevents %}
-                  <div style="font-family:var(--font-mono);font-size:.68rem;padding:.2rem 0;border-bottom:1px solid hsl(var(--border-slate)/.15);word-break:break-all;
+              <!-- CPU sparkline card -->
+              <div
+                style="display: flex; align-items: center; gap: 0.75rem; background: hsl(var(--bg-dark)); border: 1px solid hsl(var(--border-slate)); border-radius: 0.5rem; padding: 0.4rem 0.8rem;">
+                <div style="display: flex; flex-direction: column;">
+                  <span
+                    style="font-size: 0.65rem; color: #ffd966; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">CPU</span>
+                  <span style="font-size: 1.1rem; font-weight: 800; color: #ffffff;"
+                    id="cpuVal_{{ targetId }}">0%</span>
+                </div>
+                <canvas id="cpuSparkline_{{ targetId }}" width="90" height="28"
+                  style="width: 90px; height: 28px;"></canvas>
+              </div>
+            </div>
+
+            <div style="position: relative; height: 320px; width: 100%; margin-bottom: 0.5rem;">
+              <canvas id="resourceChart_{{ targetId }}"></canvas>
+
+              <!-- Custom Legend -->
+              <div
+                style="position: absolute; bottom: 15px; right: 15px; background: rgba(5, 5, 9, 0.95); border: 1px solid hsl(var(--border-slate)); border-radius: 0.375rem; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.65rem; font-family: var(--font-mono); pointer-events: none; z-index: 10;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;"><span
+                    style="display: inline-block; width: 12px; height: 3px; background: #4A90D9;"></span><span
+                    style="color: #4A90D9;">Blue Line = RAM (Memory) (MB)</span></div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;"><span
+                    style="display: inline-block; width: 12px; height: 3px; background: #ffd966;"></span><span
+                    style="color: #ffd966;">Yellow Line = CPU (%)</span></div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;"><span
+                    style="display: inline-block; width: 12px; height: 3px; background: #E05C5C;"></span><span
+                    style="color: #E05C5C;">Orange Line = Disk Write (B/s)</span></div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;"><span
+                    style="display: inline-block; width: 12px; height: 3px; background: #9B59B6;"></span><span
+                    style="color: #9B59B6;">Purple Line = Net Send (B/s)</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Collapsable raw performance table -->
+          <details
+            style="margin-top: 1rem; border: 1px solid hsl(var(--border-slate)); border-radius: 0.375rem; background: hsl(var(--bg-dark));">
+            <summary
+              style="padding: 0.55rem 0.75rem; font-size: 0.75rem; font-weight: 600; color: #94a3b8; cursor: pointer; user-select: none; outline: none;">
+              📊 View Raw Performance Data Table
+            </summary>
+            <div
+              style="padding: 0.5rem 0.75rem; border-top: 1px solid hsl(var(--border-slate)/0.4); max-height: 250px; overflow-y: auto;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Elapsed Time</th>
+                    <th>CPU %</th>
+                    <th>Private Memory Bytes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in res.time_series %}
+                  <tr>
+                    <td class="mono">{{ r.elapsed_seconds }}s</td>
+                    <td class="mono">{{ r.cpu_percent }}%</td>
+                    <td class="mono">{{ (r.memory_bytes / 1048576)|round(2) }} MB ({{ r.memory_bytes }} B)</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+
+        <!-- G. Raw Telemetry Tab -->
+        <div class="sub-panel" id="sub-{{ target|replace('.', '_') }}-raw" style="display:none;">
+          <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.75rem;">Raw Event Telemetry Stream</h4>
+          <p style="font-size:.7rem;color:#475569;margin-bottom:1rem;">All captured events from the guest agent,
+            organized by category. Use your browser's Ctrl+F to search.</p>
+
+          {% set telem_cats = ['Filesystem', 'Registry', 'Persistence', 'Processes', 'Memory', 'Network', 'Hardware',
+          'System'] %}
+          {% for tcat in telem_cats %}
+          {% set tevents = categories.get(tcat, []) %}
+          {% if tevents %}
+          <details
+            style="margin-bottom:.75rem;border:1px solid hsl(var(--border-slate));border-radius:.375rem;background:hsl(var(--bg-dark));"
+            {% if loop.first %}open{% endif %}>
+            <summary
+              style="padding:.5rem .75rem;font-size:.75rem;font-weight:700;cursor:pointer;user-select:none;outline:none;display:flex;align-items:center;gap:.5rem;">
+              {% if tcat == 'Filesystem' %}<span style="color:#4ade80;">📂</span>
+              {% elif tcat == 'Registry' %}<span style="color:#ffd966;">🗝</span>
+              {% elif tcat == 'Persistence' %}<span style="color:#ff4444;">🔒</span>
+              {% elif tcat == 'Processes' %}<span style="color:#60a5fa;">⚙</span>
+              {% elif tcat == 'Memory' %}<span style="color:#c084fc;">🧠</span>
+              {% elif tcat == 'Network' %}<span style="color:#22d3ee;">🌐</span>
+              {% elif tcat == 'Hardware' %}<span style="color:#fb923c;">🖥</span>
+              {% elif tcat == 'System' %}<span style="color:#94a3b8;">ℹ</span>
+              {% endif %}
+              <span style="color:#e2e8f0;">{{ tcat }}</span>
+              <span style="font-family:var(--font-mono);font-size:.68rem;color:#64748b;">({{ tevents|length }} event{{
+                's' if tevents|length != 1 else '' }})</span>
+            </summary>
+            <div
+              style="padding:.5rem .75rem;border-top:1px solid hsl(var(--border-slate)/.4);max-height:300px;overflow-y:auto;">
+              {% for ev in tevents %}
+              <div style="font-family:var(--font-mono);font-size:.68rem;padding:.2rem 0;border-bottom:1px solid hsl(var(--border-slate)/.15);word-break:break-all;
                     {% if 'INJECT' in ev|upper or 'UNSIGNED' in ev|upper or 'CRITICAL' in ev|upper or 'HOLLOW' in ev|upper %}color:#ff6b6b;
                     {% elif 'SUSPICIOUS' in ev|upper or 'RUN_KEY' in ev|upper or 'FILE_DROP' in ev|upper %}color:#ffd966;
                     {% elif 'PROCESS_SPAWN' in ev|upper or 'PROCESS_ROOT' in ev|upper %}color:#60a5fa;
                     {% else %}color:#94a3b8;{% endif %}
                   ">{{ ev }}</div>
-                  {% endfor %}
-                </div>
-              </details>
-              {% endif %}
-            {% endfor %}
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+          {% endfor %}
 
-            {% set has_any_events = false %}
-            {% for tcat in telem_cats %}
-              {% if categories.get(tcat, []) %}{% set has_any_events = true %}{% endif %}
-            {% endfor %}
-            {% if not has_any_events %}
-              <div style="text-align:center;padding:2rem;color:#475569;font-size:.82rem;">No raw telemetry events were captured during this analysis run.</div>
-            {% endif %}
-          </div>
+          {% set has_any_events = false %}
+          {% for tcat in telem_cats %}
+          {% if categories.get(tcat, []) %}{% set has_any_events = true %}{% endif %}
+          {% endfor %}
+          {% if not has_any_events %}
+          <div style="text-align:center;padding:2rem;color:#475569;font-size:.82rem;">No raw telemetry events were
+            captured during this analysis run.</div>
+          {% endif %}
+        </div>
 
         {% else %}
-          <!-- Legacy telemetries -->
-          {% for category, events in categories.items() %}
-            {% if events %}
-            <div style="margin-bottom:1rem;">
-              <div style="font-size:.72rem;font-weight:700;color:hsl(var(--accent));text-transform:uppercase;margin-bottom:.4rem;">{{ category }}</div>
-              <div style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.75rem;font-family:var(--font-mono);font-size:.72rem;max-height:200px;overflow-y:auto;">
-                {% if events is iterable and events is not string %}
-                  {% for ev in events %}
-                  <div style="color:#c8d3e0;padding:.1rem 0;">{{ ev }}</div>
-                  {% endfor %}
-                {% else %}
-                  <div style="color:#c8d3e0;">{{ events }}</div>
-                {% endif %}
-              </div>
-            </div>
+        <!-- Legacy telemetries -->
+        {% for category, events in categories.items() %}
+        {% if events %}
+        <div style="margin-bottom:1rem;">
+          <div
+            style="font-size:.72rem;font-weight:700;color:hsl(var(--accent));text-transform:uppercase;margin-bottom:.4rem;">
+            {{ category }}</div>
+          <div
+            style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.75rem;font-family:var(--font-mono);font-size:.72rem;max-height:200px;overflow-y:auto;">
+            {% if events is iterable and events is not string %}
+            {% for ev in events %}
+            <div style="color:#c8d3e0;padding:.1rem 0;">{{ ev }}</div>
+            {% endfor %}
+            {% else %}
+            <div style="color:#c8d3e0;">{{ events }}</div>
             {% endif %}
-          {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+        {% endfor %}
         {% endif %}
       </div>
       {% endfor %}
-    {% else %}
+      {% else %}
       <div class="card">
         {% set mem_dyn = mem_sess.get('results_store', {}) if mem_sess else {} %}
         {% set has_dyn = false %}
         {% for mk, md in mem_dyn.items() %}
-          {% if 'Dynamic:' in mk and 'Summary' not in mk %}
-            {% set has_dyn = true %}
-            <div style="margin-bottom:1rem;">
-              <div style="font-size:.72rem;font-weight:700;color:hsl(var(--accent));margin-bottom:.4rem;">{{ mk }}</div>
-              {% if md.get('Events') %}
-              <div style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.75rem;font-family:var(--font-mono);font-size:.72rem;max-height:180px;overflow-y:auto;">
-                {% for line in md.Events.split('\n') %}{% if line %}<div style="color:#c8d3e0;">{{ line }}</div>{% endif %}{% endfor %}
-              </div>
-              {% endif %}
-            </div>
+        {% if 'Dynamic:' in mk and 'Summary' not in mk %}
+        {% set has_dyn = true %}
+        <div style="margin-bottom:1rem;">
+          <div style="font-size:.72rem;font-weight:700;color:hsl(var(--accent));margin-bottom:.4rem;">{{ mk }}</div>
+          {% if md.get('Events') %}
+          <div
+            style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.75rem;font-family:var(--font-mono);font-size:.72rem;max-height:180px;overflow-y:auto;">
+            {% for line in md.Events.split('\n') %}{% if line %}<div style="color:#c8d3e0;">{{ line }}</div>{% endif
+            %}{% endfor %}
+          </div>
           {% endif %}
+        </div>
+        {% endif %}
         {% endfor %}
         {% if not has_dyn %}
-        <p style="color:#475569;font-size:.85rem;text-align:center;padding:2rem;">No dynamic analysis data — sandbox was not executed or no events were captured.</p>
+        <p style="color:#475569;font-size:.85rem;text-align:center;padding:2rem;">No dynamic analysis data — sandbox was
+          not executed or no events were captured.</p>
         {% endif %}
       </div>
-    {% endif %}
-  </div>
+      {% endif %}
+    </div>
 
-  <!-- SCORING -->
-  <div class="section-panel" id="tab-scoring">
-    {% set scoring = report_data.get('threat_scoring', {}) if report_data else {} %}
-    {% set mem_scores = mem_sess.get('scoring_results', {}) if mem_sess else {} %}
-    {% set score_source = scoring if scoring else mem_scores %}
+    <!-- SCORING -->
+    <div class="section-panel" id="tab-scoring">
+      {% set scoring = report_data.get('threat_scoring', {}) if report_data else {} %}
+      {% set mem_scores = mem_sess.get('scoring_results', {}) if mem_sess else {} %}
+      {% set score_source = scoring if scoring else mem_scores %}
 
-    {% if score_source %}
+      {% if score_source %}
       {% for target, sr in score_source.items() %}
       <div class="card">
         <div class="card-title">📊 {{ target }}</div>
         {% set tot = sr.get('total_score', 0)|float %}
         {% set v2 = sr.get('verdict', 'CLEAN') %}
         {% set c2 = '#ff4444' if tot >= 7.5 else '#ff9500' if tot >= 5 else '#ffd966' if tot >= 3 else '#4ade80' %}
-        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:.75rem;background:hsl(var(--bg-dark));border-radius:.375rem;">
+        <div
+          style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;padding:.75rem;background:hsl(var(--bg-dark));border-radius:.375rem;">
           <div style="font-size:1.4rem;font-weight:800;font-family:var(--font-mono);color:{{ c2 }};">{{ v2 }}</div>
           <div>
             <div style="font-size:.85rem;color:#e2e8f0;">{{ '%.1f'|format(tot) }} / 10.0</div>
@@ -747,372 +1284,390 @@ header {
         </div>
         {% if sr.get('categories') %}
         <table class="data-table">
-          <thead><tr><th>Category</th><th>Score</th><th>Gauge</th><th>Key Findings</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Score</th>
+              <th>Gauge</th>
+              <th>Key Findings</th>
+            </tr>
+          </thead>
           <tbody>
-          {% for cat in sr.categories %}
-          {% set norm = cat.get('normalised', 0)|float %}
-          {% set bc = '#ff4444' if norm >= 7.5 else '#ff9500' if norm >= 5 else '#ffd966' if norm >= 3 else '#4ade80' %}
-          <tr>
-            <td style="font-weight:600;">{{ cat.name }}</td>
-            <td class="mono">{{ '%.1f'|format(cat.score) }}/{{ cat.max_score|int }}</td>
-            <td>
-              <div style="background:hsl(var(--border-slate));border-radius:1rem;height:5px;width:80px;">
-                <div style="height:5px;border-radius:1rem;width:{{ norm*10 }}%;background:{{ bc }};"></div>
-              </div>
-            </td>
-            <td style="font-size:.72rem;color:#94a3b8;">{{ (cat.findings[:2]|join('; ')) if cat.findings else '—' }}</td>
-          </tr>
-          {% endfor %}
+            {% for cat in sr.categories %}
+            {% set norm = cat.get('normalised', 0)|float %}
+            {% set bc = '#ff4444' if norm >= 7.5 else '#ff9500' if norm >= 5 else '#ffd966' if norm >= 3 else '#4ade80'
+            %}
+            <tr>
+              <td style="font-weight:600;">{{ cat.name }}</td>
+              <td class="mono">{{ '%.1f'|format(cat.score) }}/{{ cat.max_score|int }}</td>
+              <td>
+                <div style="background:hsl(var(--border-slate));border-radius:1rem;height:5px;width:80px;">
+                  <div style="height:5px;border-radius:1rem;width:{{ norm*10 }}%;background:{{ bc }};"></div>
+                </div>
+              </td>
+              <td style="font-size:.72rem;color:#94a3b8;">{{ (cat.findings[:2]|join('; ')) if cat.findings else '—' }}
+              </td>
+            </tr>
+            {% endfor %}
           </tbody>
         </table>
         {% endif %}
       </div>
       {% endfor %}
-    {% else %}
-      <div class="card"><p style="color:#475569;font-size:.85rem;text-align:center;padding:2rem;">No scoring data available.</p></div>
-    {% endif %}
-  </div>
-
-  <!-- ARTIFACTS -->
-  {% if extracted_files %}
-  <div class="section-panel" id="tab-artifacts">
-    <div class="card">
-      <div class="card-title">📦 Extracted Artifacts ({{ extracted_files|length }} files)</div>
-      <table class="data-table">
-        <thead><tr><th>Filename</th><th>Actions</th></tr></thead>
-        <tbody>
-        {% for f in extracted_files %}
-        <tr>
-          <td class="mono">{{ f }}</td>
-          <td><a href="/download/extracted/{{ record.sha256_hash }}/{{ f }}" style="font-size:.72rem;color:hsl(var(--accent));text-decoration:none;">⬇ Download</a></td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+      {% else %}
+      <div class="card">
+        <p style="color:#475569;font-size:.85rem;text-align:center;padding:2rem;">No scoring data available.</p>
+      </div>
+      {% endif %}
     </div>
-  </div>
-  {% endif %}
 
-  <!-- LOGS -->
-  {% if mem_sess and mem_sess.get('logs') %}
-  <div class="section-panel" id="tab-logs">
-    <div class="card">
-      <div class="card-title">📋 Execution Logs</div>
-      <div class="log-box">
-        {% for line in mem_sess.logs %}
-        <div>{{ line }}</div>
-        {% endfor %}
+    <!-- ARTIFACTS -->
+    {% if extracted_files %}
+    <div class="section-panel" id="tab-artifacts">
+      <div class="card">
+        <div class="card-title">📦 Extracted Artifacts ({{ extracted_files|length }} files)</div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in extracted_files %}
+            <tr>
+              <td class="mono">{{ f }}</td>
+              <td><a href="/download/extracted/{{ record.sha256_hash }}/{{ f }}"
+                  style="font-size:.72rem;color:hsl(var(--accent));text-decoration:none;">⬇ Download</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
-  </div>
-  {% endif %}
+    {% endif %}
 
-</div><!-- /container -->
+    <!-- LOGS -->
+    {% if mem_sess and mem_sess.get('logs') %}
+    <div class="section-panel" id="tab-logs">
+      <div class="card">
+        <div class="card-title">📋 Execution Logs</div>
+        <div class="log-box">
+          {% for line in mem_sess.logs %}
+          <div>{{ line }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
-<script>
-function switchTab(name) {
-  document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
-  const panel = document.getElementById('tab-' + name);
-  if (panel) panel.classList.add('active');
-  if (event && event.target) event.target.classList.add('active');
-}
+  </div><!-- /container -->
 
-function switchSubTab(event, subTabId) {
-  const container = event.target.closest('.card');
-  if (!container) return;
-  // Deactivate siblings buttons
-  container.querySelectorAll('.section-tabs .stab').forEach(btn => btn.classList.remove('active'));
-  event.target.classList.add('active');
-  
-  // Hide all sibling panels
-  container.querySelectorAll('.sub-panel').forEach(panel => panel.style.display = 'none');
-  const activePanel = container.querySelector('#sub-' + subTabId);
-  if (activePanel) activePanel.style.display = 'block';
-}
-
-function initResourceChart(targetId, timeSeries) {
-  if (!timeSeries || timeSeries.length === 0) return;
-
-  const labels = timeSeries.map(r => r.elapsed_seconds + 's');
-  const ramData = timeSeries.map(r => r.memory_bytes / 1048576); // convert to MB
-  const cpuData = timeSeries.map(r => r.cpu_percent);
-  const diskData = timeSeries.map(r => r.disk_write_bytes_sec || 0);
-  const netData = timeSeries.map(r => r.network_send_bytes_sec || 0);
-
-  const maxElapsed = timeSeries[timeSeries.length - 1].elapsed_seconds;
-  const titleEl = document.getElementById('chartTitle_' + targetId);
-  if (titleEl) {
-    titleEl.textContent = `Resource Usage Breakdown (0s - ${maxElapsed}s Elapsed)`;
-  }
-
-  // Find the largest RAM jump
-  let maxJumpIndex = -1;
-  let maxJumpDiff = 0;
-  for (let i = 1; i < timeSeries.length; i++) {
-    let diff = timeSeries[i].memory_bytes - timeSeries[i-1].memory_bytes;
-    if (diff > maxJumpDiff) {
-      maxJumpDiff = diff;
-      maxJumpIndex = i;
+  <script>
+    function switchTab(name) {
+      document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
+      const panel = document.getElementById('tab-' + name);
+      if (panel) panel.classList.add('active');
+      if (event && event.target) event.target.classList.add('active');
     }
-  }
 
-  // Sparkline Chart.js instance
-  const sparkCanvas = document.getElementById('cpuSparkline_' + targetId);
-  if (sparkCanvas) {
-    new Chart(sparkCanvas, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          data: cpuData,
-          borderColor: '#ffd966',
-          borderWidth: 1.5,
-          pointRadius: 0,
-          fill: false,
-          tension: 0.3
-        }]
-      },
-      options: {
-        responsive: false,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
-        scales: {
-          x: { display: false },
-          y: { display: false, min: 0 }
+    function switchSubTab(event, subTabId) {
+      const container = event.target.closest('.card');
+      if (!container) return;
+      // Deactivate siblings buttons
+      container.querySelectorAll('.section-tabs .stab').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+
+      // Hide all sibling panels
+      container.querySelectorAll('.sub-panel').forEach(panel => panel.style.display = 'none');
+      const activePanel = container.querySelector('#sub-' + subTabId);
+      if (activePanel) activePanel.style.display = 'block';
+    }
+
+    function initResourceChart(targetId, timeSeries) {
+      if (!timeSeries || timeSeries.length === 0) return;
+
+      const labels = timeSeries.map(r => r.elapsed_seconds + 's');
+      const ramData = timeSeries.map(r => r.memory_bytes / 1048576); // convert to MB
+      const cpuData = timeSeries.map(r => r.cpu_percent);
+      const diskData = timeSeries.map(r => r.disk_write_bytes_sec || 0);
+      const netData = timeSeries.map(r => r.network_send_bytes_sec || 0);
+
+      const maxElapsed = timeSeries[timeSeries.length - 1].elapsed_seconds;
+      const titleEl = document.getElementById('chartTitle_' + targetId);
+      if (titleEl) {
+        titleEl.textContent = `Resource Usage Breakdown (0s - ${maxElapsed}s Elapsed)`;
+      }
+
+      // Find the largest RAM jump
+      let maxJumpIndex = -1;
+      let maxJumpDiff = 0;
+      for (let i = 1; i < timeSeries.length; i++) {
+        let diff = timeSeries[i].memory_bytes - timeSeries[i - 1].memory_bytes;
+        if (diff > maxJumpDiff) {
+          maxJumpDiff = diff;
+          maxJumpIndex = i;
         }
       }
-    });
-  }
 
-  // Annotation plugin
-  const ramAnnotationPlugin = {
-    id: 'ramAnnotation',
-    afterDatasetsDraw(chart) {
-      if (maxJumpIndex === -1) return;
-      const { ctx, chartArea: { top, bottom, left, right } } = chart;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta || !meta.data[maxJumpIndex]) return;
-      
-      const point = meta.data[maxJumpIndex];
-      const x = point.x;
-      const y = point.y;
-      
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x, y, 6, 0, 2 * Math.PI);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#4A90D9';
-      ctx.stroke();
-      
-      const beforeBytes = timeSeries[maxJumpIndex-1].memory_bytes;
-      const afterBytes = timeSeries[maxJumpIndex].memory_bytes;
-      const text = `RAM Increase @ ${timeSeries[maxJumpIndex].elapsed_seconds}s | Before: ${beforeBytes.toLocaleString()} bytes -> After: ${afterBytes.toLocaleString()} bytes`;
-      
-      ctx.font = 'bold 11px var(--font-sans), Inter, sans-serif';
-      const textWidth = ctx.measureText(text).width;
-      const paddingX = 8;
-      const paddingY = 6;
-      const boxWidth = textWidth + paddingX * 2;
-      const boxHeight = 22;
-      
-      let boxX = x + 12;
-      let boxY = y - boxHeight / 2;
-      
-      if (boxX + boxWidth > right) {
-        boxX = x - boxWidth - 12;
-      }
-      
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1;
-      
-      ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
-      } else {
-        ctx.rect(boxX, boxY, boxWidth, boxHeight);
-      }
-      ctx.fill();
-      ctx.stroke();
-      
-      ctx.fillStyle = '#ffffff';
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
-      ctx.fillText(text, boxX + paddingX, boxY + boxHeight / 2);
-      ctx.restore();
-    }
-  };
-
-  // Main Chart
-  const mainCanvas = document.getElementById('resourceChart_' + targetId);
-  if (mainCanvas) {
-    const peakCpu = Math.max(...cpuData);
-    new Chart(mainCanvas, {
-      type: 'line',
-      plugins: [ramAnnotationPlugin],
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: 'RAM (Memory) (MB)',
-            data: ramData,
-            borderColor: '#4A90D9',
-            backgroundColor: function(context) {
-              const chart = context.chart;
-              const {ctx, chartArea} = chart;
-              if (!chartArea) return null;
-              const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-              gradient.addColorStop(0, 'rgba(74, 144, 217, 0.25)');
-              gradient.addColorStop(1, 'rgba(74, 144, 217, 0.0)');
-              return gradient;
-            },
-            fill: true,
-            yAxisID: 'y1',
-            tension: 0.2,
-            borderWidth: 2,
-            pointRadius: 0,
-            pointHoverRadius: 4
+      // Sparkline Chart.js instance
+      const sparkCanvas = document.getElementById('cpuSparkline_' + targetId);
+      if (sparkCanvas) {
+        new Chart(sparkCanvas, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: cpuData,
+              borderColor: '#ffd966',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3
+            }]
           },
-          {
-            label: 'CPU (%)',
-            data: cpuData,
-            borderColor: '#ffd966',
-            fill: false,
-            yAxisID: 'y2',
-            tension: 0.2,
-            borderWidth: 1.5,
-            pointRadius: 0,
-            pointHoverRadius: 4
-          },
-          {
-            label: 'Disk Write (B/s)',
-            data: diskData,
-            borderColor: '#E05C5C',
-            fill: false,
-            yAxisID: 'y2',
-            tension: 0.2,
-            borderWidth: 1.5,
-            pointRadius: 0,
-            pointHoverRadius: 4
-          },
-          {
-            label: 'Net Send (B/s)',
-            data: netData,
-            borderColor: '#9B59B6',
-            fill: false,
-            yAxisID: 'y2',
-            tension: 0.2,
-            borderWidth: 1.5,
-            pointRadius: 0,
-            pointHoverRadius: 4
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        onHover: (event, activeElements) => {
-          const valEl = document.getElementById('cpuVal_' + targetId);
-          if (valEl) {
-            if (activeElements && activeElements.length > 0) {
-              const dataIndex = activeElements[0].index;
-              const hoveredCpu = cpuData[dataIndex];
-              valEl.textContent = hoveredCpu.toFixed(1) + '%';
-            } else {
-              valEl.textContent = peakCpu.toFixed(1) + '%';
+          options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+              x: { display: false },
+              y: { display: false, min: 0 }
             }
           }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            mode: 'index',
-            intersect: false,
-            backgroundColor: 'rgba(15, 23, 42, 0.95)',
-            titleColor: '#e2e8f0',
-            bodyColor: '#cbd5e1',
-            borderColor: '#1e293b',
-            borderWidth: 1,
-            callbacks: {
-              label: function(context) {
-                let label = context.dataset.label || '';
-                if (label) label += ': ';
-                if (context.parsed.y !== null) {
-                  if (context.datasetIndex === 0) {
-                    label += context.parsed.y.toFixed(2) + ' MB';
-                  } else if (context.datasetIndex === 1) {
-                    label += context.parsed.y.toFixed(1) + '%';
-                  } else {
-                    label += context.parsed.y.toLocaleString() + ' B/s';
+        });
+      }
+
+      // Annotation plugin
+      const ramAnnotationPlugin = {
+        id: 'ramAnnotation',
+        afterDatasetsDraw(chart) {
+          if (maxJumpIndex === -1) return;
+          const { ctx, chartArea: { top, bottom, left, right } } = chart;
+          const meta = chart.getDatasetMeta(0);
+          if (!meta || !meta.data[maxJumpIndex]) return;
+
+          const point = meta.data[maxJumpIndex];
+          const x = point.x;
+          const y = point.y;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(x, y, 6, 0, 2 * Math.PI);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#4A90D9';
+          ctx.stroke();
+
+          const beforeBytes = timeSeries[maxJumpIndex - 1].memory_bytes;
+          const afterBytes = timeSeries[maxJumpIndex].memory_bytes;
+          const text = `RAM Increase @ ${timeSeries[maxJumpIndex].elapsed_seconds}s | Before: ${beforeBytes.toLocaleString()} bytes -> After: ${afterBytes.toLocaleString()} bytes`;
+
+          ctx.font = 'bold 11px var(--font-sans), Inter, sans-serif';
+          const textWidth = ctx.measureText(text).width;
+          const paddingX = 8;
+          const paddingY = 6;
+          const boxWidth = textWidth + paddingX * 2;
+          const boxHeight = 22;
+
+          let boxX = x + 12;
+          let boxY = y - boxHeight / 2;
+
+          if (boxX + boxWidth > right) {
+            boxX = x - boxWidth - 12;
+          }
+
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+          ctx.strokeStyle = '#1e293b';
+          ctx.lineWidth = 1;
+
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+          } else {
+            ctx.rect(boxX, boxY, boxWidth, boxHeight);
+          }
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'left';
+          ctx.fillText(text, boxX + paddingX, boxY + boxHeight / 2);
+          ctx.restore();
+        }
+      };
+
+      // Main Chart
+      const mainCanvas = document.getElementById('resourceChart_' + targetId);
+      if (mainCanvas) {
+        const peakCpu = Math.max(...cpuData);
+        new Chart(mainCanvas, {
+          type: 'line',
+          plugins: [ramAnnotationPlugin],
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'RAM (Memory) (MB)',
+                data: ramData,
+                borderColor: '#4A90D9',
+                backgroundColor: function (context) {
+                  const chart = context.chart;
+                  const { ctx, chartArea } = chart;
+                  if (!chartArea) return null;
+                  const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+                  gradient.addColorStop(0, 'rgba(74, 144, 217, 0.25)');
+                  gradient.addColorStop(1, 'rgba(74, 144, 217, 0.0)');
+                  return gradient;
+                },
+                fill: true,
+                yAxisID: 'y1',
+                tension: 0.2,
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4
+              },
+              {
+                label: 'CPU (%)',
+                data: cpuData,
+                borderColor: '#ffd966',
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0.2,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 4
+              },
+              {
+                label: 'Disk Write (B/s)',
+                data: diskData,
+                borderColor: '#E05C5C',
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0.2,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 4
+              },
+              {
+                label: 'Net Send (B/s)',
+                data: netData,
+                borderColor: '#9B59B6',
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0.2,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onHover: (event, activeElements) => {
+              const valEl = document.getElementById('cpuVal_' + targetId);
+              if (valEl) {
+                if (activeElements && activeElements.length > 0) {
+                  const dataIndex = activeElements[0].index;
+                  const hoveredCpu = cpuData[dataIndex];
+                  valEl.textContent = hoveredCpu.toFixed(1) + '%';
+                } else {
+                  valEl.textContent = peakCpu.toFixed(1) + '%';
+                }
+              }
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                mode: 'index',
+                intersect: false,
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                titleColor: '#e2e8f0',
+                bodyColor: '#cbd5e1',
+                borderColor: '#1e293b',
+                borderWidth: 1,
+                callbacks: {
+                  label: function (context) {
+                    let label = context.dataset.label || '';
+                    if (label) label += ': ';
+                    if (context.parsed.y !== null) {
+                      if (context.datasetIndex === 0) {
+                        label += context.parsed.y.toFixed(2) + ' MB';
+                      } else if (context.datasetIndex === 1) {
+                        label += context.parsed.y.toFixed(1) + '%';
+                      } else {
+                        label += context.parsed.y.toLocaleString() + ' B/s';
+                      }
+                    }
+                    return label;
                   }
                 }
-                return label;
+              }
+            },
+            scales: {
+              x: {
+                grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
+                ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
+                title: {
+                  display: true,
+                  text: 'Elapsed Time (Seconds)',
+                  color: '#64748b',
+                  font: { family: 'Inter', size: 11, weight: 'bold' }
+                }
+              },
+              y1: {
+                type: 'linear',
+                position: 'left',
+                grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
+                ticks: {
+                  color: '#64748b',
+                  font: { family: 'Inter', size: 10 },
+                  callback: function (value) { return value.toFixed(2) + ' MB'; }
+                },
+                title: {
+                  display: true,
+                  text: 'Memory (RAM)',
+                  color: '#64748b',
+                  font: { family: 'Inter', size: 11, weight: 'bold' }
+                }
+              },
+              y2: {
+                type: 'linear',
+                position: 'right',
+                grid: { drawOnChartArea: false, borderColor: 'rgba(255, 255, 255, 0.1)' },
+                ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
+                title: {
+                  display: true,
+                  text: 'CPU % / Bandwidth (B/s)',
+                  color: '#64748b',
+                  font: { family: 'Inter', size: 11, weight: 'bold' }
+                },
+                min: 0,
+                suggestedMax: 100
               }
             }
           }
-        },
-        scales: {
-          x: {
-            grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
-            ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
-            title: {
-              display: true,
-              text: 'Elapsed Time (Seconds)',
-              color: '#64748b',
-              font: { family: 'Inter', size: 11, weight: 'bold' }
-            }
-          },
-          y1: {
-            type: 'linear',
-            position: 'left',
-            grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
-            ticks: {
-              color: '#64748b',
-              font: { family: 'Inter', size: 10 },
-              callback: function(value) { return value.toFixed(2) + ' MB'; }
-            },
-            title: {
-              display: true,
-              text: 'Memory (RAM)',
-              color: '#64748b',
-              font: { family: 'Inter', size: 11, weight: 'bold' }
-            }
-          },
-          y2: {
-            type: 'linear',
-            position: 'right',
-            grid: { drawOnChartArea: false, borderColor: 'rgba(255, 255, 255, 0.1)' },
-            ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
-            title: {
-              display: true,
-              text: 'CPU % / Bandwidth (B/s)',
-              color: '#64748b',
-              font: { family: 'Inter', size: 11, weight: 'bold' }
-            },
-            min: 0,
-            suggestedMax: 100
-          }
-        }
+        });
       }
-    });
-  }
-}
+    }
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Init charts for server-side rendered targets
-  {% if dyn_data %}
-    {% for target, categories in dyn_data.items() %}
+    document.addEventListener('DOMContentLoaded', () => {
+      // Init charts for server-side rendered targets
+      {% if dyn_data %}
+      {% for target, categories in dyn_data.items() %}
       {% if 'process_tree_generation' in categories %}
-        {% set res = categories.resource_utility_monitoring %}
-        {% set targetId = target|replace('.', '_') %}
-        initResourceChart('{{ targetId }}', {{ res.time_series | tojson }});
-      {% endif %}
+      {% set res = categories.resource_utility_monitoring %}
+      {% set targetId = target | replace('.', '_') %}
+      initResourceChart('{{ targetId }}', {{ res.time_series | tojson }});
+    {% endif %}
     {% endfor %}
-  {% endif %}
+    {% endif %}
 });
-</script>
+  </script>
 </body>
+
 </html>

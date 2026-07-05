@@ -3,29 +3,39 @@
    ========================================================================== */
 
 /* Modern Font Stack */
-/* @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap'); */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 :root {
     --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-mono: 'JetBrains Mono', SFMono-Regular, Consolas, monospace;
-    
+
     /* Harmonious Cyberpunk Dark Theme HSL Colors */
-    --bg-darker: 224 25% 6%;      /* Deep space black */
-    --bg-dark: 222 25% 10%;      /* Sleek dark panel bg */
-    --bg-card: 223 20% 14%;      /* Card panel */
-    --border-slate: 220 15% 20%; /* Border color */
-    
+    --bg-darker: 224 25% 6%;
+    /* Deep space black */
+    --bg-dark: 222 25% 10%;
+    /* Sleek dark panel bg */
+    --bg-card: 223 20% 14%;
+    /* Card panel */
+    --border-slate: 220 15% 20%;
+    /* Border color */
+
     /* Accents */
-    --primary: 250 85% 65%;      /* Indigo Neon */
+    --primary: 250 85% 65%;
+    /* Indigo Neon */
     --primary-glow: 250 85% 65% / 0.15;
-    --accent: 190 95% 50%;       /* Cyan Neon */
+    --accent: 190 95% 50%;
+    /* Cyan Neon */
     --accent-glow: 190 95% 50% / 0.15;
-    
+
     /* Statuses */
-    --status-queued: 210 100% 56%;     /* Bright Blue */
-    --status-processing: 45 100% 51%;  /* Pulsing Amber */
-    --status-complete: 142 70% 45%;    /* Safe Emerald */
-    --status-failed: 0 85% 60%;        /* Warning Red */
+    --status-queued: 210 100% 56%;
+    /* Bright Blue */
+    --status-processing: 45 100% 51%;
+    /* Pulsing Amber */
+    --status-complete: 142 70% 45%;
+    /* Safe Emerald */
+    --status-failed: 0 85% 60%;
+    /* Warning Red */
 }
 
 /* Base Styles */
@@ -159,7 +169,8 @@ header {
     transition: all 0.3s ease;
 }
 
-.upload-zone:hover, .upload-zone.dragover {
+.upload-zone:hover,
+.upload-zone.dragover {
     border-color: hsl(var(--accent));
     background-color: hsl(var(--accent-glow));
     box-shadow: 0 0 20px hsl(var(--accent) / 0.1);
@@ -345,8 +356,14 @@ tr:hover td {
 
 /* Animations */
 @keyframes pulse {
-    0% { opacity: 0.6; }
-    100% { opacity: 1; filter: drop-shadow(0 0 4px hsl(var(--status-processing))); }
+    0% {
+        opacity: 0.6;
+    }
+
+    100% {
+        opacity: 1;
+        filter: drop-shadow(0 0 4px hsl(var(--status-processing)));
+    }
 }
 
 /* Global Form & Text Styles */
@@ -370,15 +387,41 @@ p {
     color: hsl(var(--accent));
 }
 
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.gap-2 { gap: 0.5rem; }
-.gap-4 { gap: 1rem; }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.w-full { width: 100%; }
-.mt-4 { margin-top: 1rem; }
-.mb-4 { margin-bottom: 1rem; }
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.gap-2 {
+    gap: 0.5rem;
+}
+
+.gap-4 {
+    gap: 1rem;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.w-full {
+    width: 100%;
+}
+
+.mt-4 {
+    margin-top: 1rem;
+}
+
+.mb-4 {
+    margin-bottom: 1rem;
+}
 
 /* Notification Toast */
 .toast-container {
@@ -397,7 +440,7 @@ p {
     color: #ffffff;
     padding: 1rem 1.5rem;
     border-radius: 0.375rem;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -411,6 +454,7 @@ p {
         transform: translateX(120%);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;

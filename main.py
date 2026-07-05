@@ -886,6 +886,10 @@ async def read_report(request: Request, sha256: str):
 
     report_data = {}
     dossier = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
+    if not os.path.exists(dossier):
+        json_path, _ = _scan_reports_for_sha256(sha256)
+        if json_path and os.path.exists(json_path):
+            dossier = json_path
     if os.path.exists(dossier):
         try:
             with open(dossier) as fh:
@@ -921,4 +925,4 @@ async def read_report(request: Request, sha256: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="localhost", port=8000)
