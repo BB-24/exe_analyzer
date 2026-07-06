@@ -1,1902 +1,1017 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MARS — Malware Analysis & Reporting System</title>
-  <link rel="stylesheet" href="/static/css/tailwind.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
-
-    /* ── Reset & base ────────────────────────────────────────────────── */
-    *,
-    *::before,
-    *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    html,
-    body {
-      height: 100%;
-      overflow: hidden;
-      font-family: var(--font-sans);
-      color-scheme: dark;
-    }
-
-    body {
-      display: flex;
-      flex-direction: column;
-      background: hsl(var(--bg-base));
-      color: hsl(var(--text-primary));
-      -webkit-font-smoothing: antialiased;
-    }
-
-    #app {
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-    }
-
-    /* ── Design tokens ───────────────────────────────────────────────── */
-    :root {
-      --bg-base: 225 47% 4%;
-      /* Deep dark dashboard canvas */
-      --bg-sidebar: 225 45% 6%;
-      /* Slightly lighter sidebar */
-      --bg-card: 225 35% 8%;
-      /* Dark glass card base */
-      --bg-card-2: 225 35% 10%;
-      /* Inner panels */
-      --bg-input: 225 40% 5%;
-      --border: 225 30% 14%;
-      --border-glow: 250 84% 63%;
-      --text-primary: 210 40% 98%;
-      --text-muted: 215 20% 65%;
-      --text-dim: 215 15% 42%;
-      --accent: 250 84% 63%;
-      /* Violet accent color */
-      --accent-2: 163 80% 50%;
-      /* Green accent */
-      --danger: 0 84% 60%;
-      --warn: 25 95% 53%;
-      --ok: 142 70% 50%;
-      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-      --font-sans: 'Inter', system-ui, sans-serif;
-      --font-title: 'Outfit', sans-serif;
-      --shadow-card: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
-      --shadow-glow: 0 0 20px hsl(var(--accent) / 0.15);
-      --r: 0.75rem;
-      /* 12px */
-    }
-
-    /* ── Sidebar ────────────────────────────────────────────────────── */
-    #sidebar {
-      width: 240px;
-      min-width: 240px;
-      background: hsl(var(--bg-sidebar));
-      border-right: 1px solid hsl(var(--border));
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-      overflow-x: hidden;
-      padding: 1rem 0;
-    }
-
-    .nav-brand {
-      padding: .5rem 1.4rem 1.25rem;
-      display: flex;
-      align-items: center;
-      gap: .75rem;
-      border-bottom: 1px solid hsl(var(--border));
-      margin-bottom: .75rem;
-    }
-
-    .nav-brand-badge {
-      background: linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));
-      color: #fff;
-      font-size: .75rem;
-      font-weight: 800;
-      letter-spacing: .08em;
-      padding: .3rem .75rem;
-      border-radius: .4rem;
-      font-family: var(--font-mono);
-      box-shadow: 0 0 15px hsl(var(--accent)/.35);
-    }
-
-    .nav-brand-name {
-      font-size: .85rem;
-      font-weight: 700;
-      color: hsl(var(--text-primary));
-      line-height: 1.2;
-      font-family: var(--font-title);
-    }
-
-    .nav-brand-sub {
-      font-size: .62rem;
-      color: hsl(var(--text-dim));
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      font-weight: 600;
-    }
-
-    .nav-section {
-      padding: 1.1rem 1.4rem .4rem;
-      font-size: .62rem;
-      font-weight: 700;
-      letter-spacing: .12em;
-      color: hsl(var(--text-dim));
-      text-transform: uppercase;
-    }
-
-    .nav-btn {
-      display: flex;
-      align-items: center;
-      gap: .75rem;
-      padding: .65rem 1.4rem;
-      border: none;
-      background: transparent;
-      color: hsl(var(--text-muted));
-      font-family: var(--font-sans);
-      font-size: .8rem;
-      font-weight: 500;
-      cursor: pointer;
-      width: 100%;
-      text-align: left;
-      transition: all .15s ease;
-      position: relative;
-    }
-
-    .nav-btn::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 20%;
-      bottom: 20%;
-      width: 3px;
-      border-radius: 0 2px 2px 0;
-      background: hsl(var(--accent));
-      opacity: 0;
-      transition: opacity .15s;
-    }
-
-    .nav-btn:hover {
-      background: hsl(var(--border)/.3);
-      color: hsl(var(--text-primary));
-      padding-left: 1.55rem;
-    }
-
-    .nav-btn.active {
-      background: hsl(var(--accent)/.06);
-      color: hsl(var(--accent));
-      font-weight: 600;
-    }
-
-    .nav-btn.active::before {
-      opacity: 1;
-    }
-
-    .nav-icon {
-      font-size: .95rem;
-      width: 1.3rem;
-      text-align: center;
-      flex-shrink: 0;
-      opacity: 0.8;
-    }
-
-    .nav-badge {
-      margin-left: auto;
-      background: hsl(var(--danger)/.85);
-      color: #fff;
-      font-size: .58rem;
-      padding: .12rem .4rem;
-      border-radius: 1rem;
-      font-weight: 700;
-      box-shadow: 0 0 8px hsl(var(--danger)/.3);
-    }
-
-    /* ── Main Area ──────────────────────────────────────────────────── */
-    #main {
-      flex: 1;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      background: hsl(var(--bg-base));
-    }
-
-    .page {
-      display: none;
-      flex: 1;
-      overflow-y: auto;
-      padding: 1.5rem;
-      gap: 1.25rem;
-    }
-
-    .page.active {
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* ── Header Bar ─────────────────────────────────────────────────── */
-    header {
-      background: hsl(var(--bg-sidebar));
-      border-bottom: 1px solid hsl(var(--border));
-      padding: .85rem 1.5rem;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .hdr-brand {
-      display: flex;
-      align-items: center;
-      gap: .85rem;
-    }
-
-    .hdr-badge {
-      background: linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));
-      color: #fff;
-      font-size: .9rem;
-      font-weight: 800;
-      letter-spacing: .08em;
-      padding: .35rem .95rem;
-      border-radius: .45rem;
-      font-family: var(--font-mono);
-      box-shadow: 0 0 15px hsl(var(--accent)/.3);
-    }
-
-    .hdr-title {
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: hsl(var(--text-primary));
-      letter-spacing: -.01em;
-      font-family: var(--font-title);
-    }
-
-    .hdr-sub {
-      font-size: .65rem;
-      color: hsl(var(--text-dim));
-      text-transform: uppercase;
-      letter-spacing: .12em;
-      margin-top: .05rem;
-      font-weight: 600;
-    }
-
-    #globalStatus {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      font-size: .72rem;
-      color: hsl(var(--text-muted));
-      margin-left: auto;
-      background: hsl(var(--border)/.3);
-      padding: .35rem .75rem;
-      border-radius: 2rem;
-    }
-
-    #globalDot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: hsl(var(--ok));
-      box-shadow: 0 0 8px hsl(var(--ok));
-      animation: gDotPulse 1.8s infinite alternate;
-    }
-
-    @keyframes gDotPulse {
-      from {
-        transform: scale(0.9);
-        opacity: 0.8;
-      }
-
-      to {
-        transform: scale(1.25);
-        opacity: 1;
-      }
-    }
-
-    /* ── Status Bar ─────────────────────────────────────────────────── */
-    #statusWrap {
-      padding: .5rem 1.5rem 0;
-      flex-shrink: 0;
-    }
-
-    #analysisStatusBar {
-      border-radius: var(--r);
-      padding: .65rem 1.15rem;
-      font-size: .78rem;
-      font-weight: 500;
-      display: none;
-      align-items: center;
-      gap: .75rem;
-      margin-bottom: .25rem;
-      background: hsl(var(--warn)/.08);
-      border: 1px solid hsl(var(--warn)/.3);
-      color: hsl(var(--warn));
-    }
-
-    #analysisStatusBar.done {
-      background: hsl(var(--ok)/.08);
-      border-color: hsl(var(--ok)/.3);
-      color: hsl(var(--ok));
-    }
-
-    #analysisStatusBar.failed {
-      background: hsl(var(--danger)/.08);
-      border-color: hsl(var(--danger)/.3);
-      color: hsl(var(--danger));
-    }
-
-    .pulse {
-      animation: pulse .9s infinite alternate;
-    }
-
-    @keyframes pulse {
-      from {
-        opacity: 1;
-      }
-
-      to {
-        opacity: .35;
-      }
-    }
-
-    /* ── Cards ──────────────────────────────────────────────────────── */
-    .card {
-      background: rgba(15, 20, 36, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: var(--r);
-      padding: 1.35rem;
-      box-shadow: var(--shadow-card);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      position: relative;
-    }
-
-    .card-title {
-      font-size: .88rem;
-      font-weight: 700;
-      color: hsl(var(--text-primary));
-      margin-bottom: 1rem;
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      letter-spacing: -.01em;
-      font-family: var(--font-title);
-    }
-
-    .card-title .ct-icon {
-      font-size: 1.1rem;
-      color: hsl(var(--accent));
-    }
-
-    /* ── Data tables ────────────────────────────────────────────────── */
-    .tbl-wrap {
-      border: 1px solid hsl(var(--border));
-      border-radius: .5rem;
-      overflow: hidden;
-      overflow-x: auto;
-    }
-
-    .data-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: .78rem;
-    }
-
-    .data-table th {
-      background: rgba(255, 255, 255, 0.02);
-      color: hsl(var(--text-muted));
-      text-align: left;
-      padding: .65rem .95rem;
-      font-size: .67rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      border-bottom: 1px solid hsl(var(--border));
-      white-space: nowrap;
-    }
-
-    .data-table td {
-      padding: .6rem .95rem;
-      border-bottom: 1px solid hsl(var(--border)/.4);
-      vertical-align: middle;
-      word-break: break-all;
-      color: hsl(var(--text-primary));
-    }
-
-    .data-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    .data-table tr:hover td {
-      background: hsl(var(--border)/.2);
-    }
-
-    .data-table .mono {
-      font-family: var(--font-mono);
-      font-size: .7rem;
-      color: hsl(var(--text-primary));
-      opacity: 0.95;
-    }
-
-    /* ── Badges ─────────────────────────────────────────────────────── */
-    .badge {
-      display: inline-block;
-      padding: .18rem .55rem;
-      border-radius: .25rem;
-      font-size: .62rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .05em;
-      white-space: nowrap;
-    }
-
-    .badge-complete,
-    .badge-enabled {
-      background: hsl(var(--ok)/.12);
-      color: hsl(var(--ok));
-      border: 1px solid hsl(var(--ok)/.25);
-    }
-
-    .badge-failed,
-    .badge-disabled {
-      background: hsl(var(--danger)/.12);
-      color: hsl(var(--danger));
-      border: 1px solid hsl(var(--danger)/.25);
-    }
-
-    .badge-queued {
-      background: hsl(210 100% 56%/.12);
-      color: hsl(210 100% 65%);
-      border: 1px solid hsl(210 100% 56%/.25);
-    }
-
-    .badge-processing {
-      background: hsl(var(--warn)/.12);
-      color: hsl(var(--warn));
-      border: 1px solid hsl(var(--warn)/.25);
-    }
-
-    .badge-na {
-      background: hsl(220 15% 15%);
-      color: hsl(var(--text-dim));
-      border: 1px solid hsl(var(--border));
-    }
-
-    .badge-terminated {
-      background: hsl(0 0% 50%/.12);
-      color: hsl(0 0% 75%);
-      border: 1px solid hsl(0 0% 50%/.25);
-    }
-
-    .badge-flagged {
-      background: hsl(var(--danger)/.1);
-      color: #ff6b6b;
-      border: 1px solid hsl(var(--danger)/.2);
-    }
-
-    .badge-clean {
-      background: hsl(var(--ok)/.1);
-      color: hsl(var(--ok));
-      border: 1px solid hsl(var(--ok)/.2);
-    }
-
-    /* ── Score pills ────────────────────────────────────────────────── */
-    .score-pill {
-      font-family: var(--font-mono);
-      font-size: .72rem;
-      font-weight: 700;
-      padding: .2rem .55rem;
-      border-radius: .25rem;
-    }
-
-    .score-malicious {
-      background: hsl(var(--danger)/.12);
-      color: #ff4d4d;
-      border: 1px solid hsl(var(--danger)/.25);
-      box-shadow: 0 0 10px hsl(var(--danger)/.1);
-    }
-
-    .score-highrisk {
-      background: hsl(30 100% 50%/.12);
-      color: #ff9500;
-      border: 1px solid hsl(30 100% 50%/.25);
-      box-shadow: 0 0 10px hsl(30 100% 50%/.1);
-    }
-
-    .score-suspicious {
-      background: hsl(var(--warn)/.12);
-      color: hsl(var(--warn));
-      border: 1px solid hsl(var(--warn)/.25);
-      box-shadow: 0 0 10px hsl(var(--warn)/.1);
-    }
-
-    .score-clean {
-      background: hsl(var(--ok)/.1);
-      color: hsl(var(--ok));
-      border: 1px solid hsl(var(--ok)/.2);
-      box-shadow: 0 0 10px hsl(var(--ok)/.05);
-    }
-
-    /* ── Verdict banner ─────────────────────────────────────────────── */
-    .verdict-banner {
-      padding: 1.25rem 1.5rem;
-      border-radius: var(--r);
-      display: flex;
-      align-items: center;
-      gap: 1.5rem;
-      margin-bottom: 1rem;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .verdict-malicious {
-      background: linear-gradient(135deg, hsl(var(--danger)/.08) 0%, hsl(var(--bg-card)) 100%);
-      border: 1px solid hsl(var(--danger)/.3);
-    }
-
-    .verdict-highrisk {
-      background: linear-gradient(135deg, hsl(30 100% 50%/.08) 0%, hsl(var(--bg-card)) 100%);
-      border: 1px solid hsl(30 100% 50%/.3);
-    }
-
-    .verdict-suspicious {
-      background: linear-gradient(135deg, hsl(var(--warn)/.08) 0%, hsl(var(--bg-card)) 100%);
-      border: 1px solid hsl(var(--warn)/.3);
-    }
-
-    .verdict-clean {
-      background: linear-gradient(135deg, hsl(var(--ok)/.08) 0%, hsl(var(--bg-card)) 100%);
-      border: 1px solid hsl(var(--ok)/.3);
-    }
-
-    .verdict-label {
-      font-size: 1.75rem;
-      font-weight: 800;
-      font-family: var(--font-mono);
-      letter-spacing: -.02em;
-      text-shadow: 0 0 15px currentColor;
-    }
-
-    .verdict-score {
-      font-size: .78rem;
-      color: hsl(var(--text-muted));
-      font-weight: 500;
-    }
-
-    /* ── Gauge ──────────────────────────────────────────────────────── */
-    .gauge-track {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 1rem;
-      height: 10px;
-      flex: 1;
-      overflow: hidden;
-    }
-
-    .gauge-fill {
-      height: 100%;
-      border-radius: 1rem;
-      transition: width .8s cubic-bezier(.4, 0, .2, 1);
-      box-shadow: 0 0 10px currentColor;
-      background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%);
-    }
-
-    /* ── Terminal log ────────────────────────────────────────────────── */
-    .log-box {
-      background: #03050a;
-      border: 1px solid hsl(var(--border));
-      border-radius: .5rem;
-      padding: 1rem 1.25rem;
-      font-family: var(--font-mono);
-      font-size: .72rem;
-      line-height: 1.7;
-      overflow-y: auto;
-      color: #39ff14;
-      flex: 1;
-      min-height: 120px;
-      box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.8);
-      white-space: pre-wrap;
-    }
-
-    .log-box .lg-info {
-      color: #00d2ff;
-    }
-
-    .log-box .lg-warn {
-      color: #ffaa00;
-    }
-
-    .log-box .lg-crit {
-      color: #ff3333;
-    }
-
-    .log-box .lg-dim {
-      color: #495670;
-    }
-
-    .log-box .lg-plus {
-      color: #39ff14;
-    }
-
-    .log-box .lg-sys {
-      color: #d682ff;
-    }
-
-    .mini-log {
-      max-height: 180px;
-      font-size: .68rem;
-    }
-
-    /* ── Upload panel ───────────────────────────────────────────────── */
-    .upload-zone {
-      background: rgba(255, 255, 255, 0.02);
-      border: 2px dashed hsl(var(--border));
-      border-radius: var(--r);
-      padding: 2.5rem 1.5rem;
-      text-align: center;
-      cursor: pointer;
-      transition: all .2s ease-in-out;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .upload-zone:hover,
-    .upload-zone.dragover {
-      border-color: hsl(var(--accent));
-      background: hsl(var(--accent)/.03);
-      box-shadow: var(--shadow-glow);
-      transform: scale(1.01);
-    }
-
-    .upload-zone .uz-icon {
-      font-size: 2.5rem;
-      margin-bottom: .75rem;
-      display: block;
-      filter: drop-shadow(0 0 8px hsl(var(--accent)/.3));
-    }
-
-    /* ── Stat chips ─────────────────────────────────────────────────── */
-    .stat-row {
-      display: flex;
-      gap: .75rem;
-      flex-wrap: wrap;
-    }
-
-    .stat-chip {
-      background: hsl(var(--bg-card-2));
-      border: 1px solid hsl(var(--border));
-      border-radius: .5rem;
-      padding: .75rem 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: .25rem;
-      flex: 1;
-      min-width: 80px;
-    }
-
-    .stat-val {
-      font-size: 1.6rem;
-      font-weight: 800;
-      font-family: var(--font-mono);
-      line-height: 1;
-    }
-
-    .stat-lbl {
-      font-size: .6rem;
-      text-transform: uppercase;
-      letter-spacing: .1em;
-      color: hsl(var(--text-dim));
-      font-weight: 700;
-      margin-top: .2rem;
-    }
-
-    /* ── KV rows ────────────────────────────────────────────────────── */
-    .kv-row {
-      display: flex;
-      border-bottom: 1px solid hsl(var(--border)/.4);
-      padding: .45rem 0;
-      font-size: .76rem;
-      align-items: center;
-    }
-
-    .kv-row:last-child {
-      border-bottom: none;
-    }
-
-    .kv-key {
-      width: 46%;
-      color: hsl(var(--text-muted));
-      font-weight: 600;
-      flex-shrink: 0;
-      font-size: .74rem;
-    }
-
-    .kv-val {
-      font-family: var(--font-mono);
-      font-size: .72rem;
-      color: hsl(var(--text-primary));
-      word-break: break-all;
-      opacity: 0.95;
-    }
-
-    /* ── Strings accordion ──────────────────────────────────────────── */
-    .artifact-section {
-      margin-bottom: .75rem;
-    }
-
-    .artifact-header {
-      display: flex;
-      align-items: center;
-      gap: .75rem;
-      padding: .65rem 1rem;
-      background: hsl(var(--bg-card-2));
-      border: 1px solid hsl(var(--border));
-      border-radius: .45rem;
-      cursor: pointer;
-      user-select: none;
-      transition: all .15s ease;
-    }
-
-    .artifact-header:hover {
-      background: hsl(var(--border)/.4);
-      border-color: hsl(var(--accent)/.3);
-    }
-
-    .artifact-label {
-      font-size: .8rem;
-      font-weight: 700;
-      color: hsl(var(--text-primary));
-      font-family: var(--font-title);
-    }
-
-    .artifact-cnt {
-      font-size: .68rem;
-      font-family: var(--font-mono);
-      color: hsl(var(--accent));
-      background: hsl(var(--accent)/.1);
-      padding: .1rem .4rem;
-      border-radius: .25rem;
-    }
-
-    .artifact-toggle {
-      margin-left: auto;
-      color: hsl(var(--text-dim));
-      font-size: .75rem;
-      transition: transform .15s;
-    }
-
-    .artifact-header.open .artifact-toggle {
-      transform: rotate(180deg);
-      color: hsl(var(--accent));
-    }
-
-    .artifact-body {
-      display: none;
-      padding: .9rem 1rem;
-      background: rgba(255, 255, 255, 0.01);
-      border: 1px solid hsl(var(--border));
-      border-top: none;
-      border-radius: 0 0 .45rem .45rem;
-      font-family: var(--font-mono);
-      font-size: .72rem;
-      color: hsl(var(--text-muted));
-      line-height: 1.8;
-      max-height: 260px;
-      overflow-y: auto;
-      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
-    }
-
-    .artifact-body.open {
-      display: block;
-    }
-
-    /* ── YARA chips ─────────────────────────────────────────────────── */
-    .yara-rule {
-      display: inline-block;
-      margin: .25rem .2rem;
-      padding: .25rem .75rem;
-      background: hsl(var(--danger)/.08);
-      color: #ff5555;
-      border: 1px solid hsl(var(--danger)/.25);
-      border-radius: .3rem;
-      font-size: .7rem;
-      font-family: var(--font-mono);
-      box-shadow: 0 0 10px rgba(255, 0, 0, 0.05);
-    }
-
-    .yara-clean {
-      color: hsl(var(--ok));
-      font-size: .85rem;
-      font-weight: 700;
-    }
-
-    /* ── Dynamic tabs ───────────────────────────────────────────────── */
-    .tab-strip {
-      display: flex;
-      gap: .4rem;
-      flex-wrap: wrap;
-      margin-bottom: 1rem;
-    }
-
-    .tab-btn {
-      padding: .45rem .95rem;
-      border-radius: .4rem;
-      border: 1px solid hsl(var(--border));
-      background: transparent;
-      color: hsl(var(--text-muted));
-      font-size: .72rem;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: var(--font-sans);
-      display: flex;
-      align-items: center;
-      gap: .4rem;
-      transition: all .15s ease;
-    }
-
-    .tab-btn:hover {
-      background: hsl(var(--border)/.4);
-      color: hsl(var(--text-primary));
-      border-color: hsl(var(--text-dim));
-    }
-
-    .tab-btn.active {
-      background: hsl(var(--accent)/.1);
-      color: hsl(var(--accent));
-      border-color: hsl(var(--accent)/.45);
-      box-shadow: var(--shadow-glow);
-    }
-
-    .tab-count {
-      background: hsl(var(--border));
-      color: hsl(var(--text-muted));
-      font-size: .58rem;
-      padding: .05rem .35rem;
-      border-radius: .75rem;
-      min-width: 1.2rem;
-      text-align: center;
-      font-family: var(--font-mono);
-    }
-
-    .tab-btn.active .tab-count {
-      background: hsl(var(--accent)/.2);
-      color: hsl(var(--accent));
-    }
-
-    /* ── Download buttons ───────────────────────────────────────────── */
-    .dl-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: .45rem;
-      padding: .55rem 1.15rem;
-      border-radius: .45rem;
-      border: 1px solid;
-      font-size: .78rem;
-      font-weight: 700;
-      cursor: pointer;
-      text-decoration: none;
-      transition: all .15s ease;
-      white-space: nowrap;
-    }
-
-    .dl-btn-json {
-      border-color: hsl(var(--accent)/.35);
-      color: hsl(var(--accent));
-      background: hsl(var(--accent)/.06);
-    }
-
-    .dl-btn-json:hover {
-      background: hsl(var(--accent)/.15);
-      box-shadow: var(--shadow-glow);
-      transform: translateY(-1px);
-    }
-
-    .dl-btn-pdf {
-      border-color: hsl(var(--danger)/.35);
-      color: #ff5f5f;
-      background: hsl(var(--danger)/.06);
-    }
-
-    .dl-btn-pdf:hover {
-      background: hsl(var(--danger)/.15);
-      box-shadow: 0 0 15px hsl(var(--danger)/.15);
-      transform: translateY(-1px);
-    }
-
-    .dl-btn-pcap {
-      border-color: hsl(210 100% 56%/.35);
-      color: hsl(210 100% 68%);
-      background: hsl(210 100% 56%/.06);
-    }
-
-    .dl-btn-pcap:hover {
-      background: hsl(210 100% 56%/.15);
-      box-shadow: 0 0 15px rgba(30, 144, 255, 0.15);
-      transform: translateY(-1px);
-    }
-
-    .dl-btn-view {
-      border-color: hsl(var(--accent-2)/.35);
-      color: hsl(var(--accent-2));
-      background: hsl(var(--accent-2)/.06);
-    }
-
-    .dl-btn-view:hover {
-      background: hsl(var(--accent-2)/.15);
-      box-shadow: 0 0 15px hsl(var(--accent-2)/.15);
-      transform: translateY(-1px);
-    }
-
-    /* ── Empty state ────────────────────────────────────────────────── */
-    .empty-state {
-      padding: 2.5rem 2rem;
-      text-align: center;
-      color: hsl(var(--text-dim));
-      font-size: .8rem;
-    }
-
-    .empty-icon {
-      font-size: 2.2rem;
-      margin-bottom: .5rem;
-      display: block;
-      filter: opacity(0.35);
-    }
-
-    /* ── Page header ────────────────────────────────────────────────── */
-    .page-hdr {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: hsl(var(--text-primary));
-      display: flex;
-      align-items: center;
-      gap: .6rem;
-      flex-shrink: 0;
-      letter-spacing: -.01em;
-      font-family: var(--font-title);
-    }
-
-    .page-hdr-sub {
-      font-size: .75rem;
-      color: hsl(var(--text-dim));
-      font-weight: 400;
-      margin-left: .25rem;
-      font-family: var(--font-sans);
-    }
-
-    /* ── History table ──────────────────────────────────────────────── */
-    .history-wrap {
-      border: 1px solid hsl(var(--border));
-      border-radius: .5rem;
-      overflow: hidden;
-      overflow-x: auto;
-      flex: 1;
-    }
-
-    .section-link {
-      color: hsl(var(--accent));
-      text-decoration: none;
-      font-size: .78rem;
-      transition: color .12s ease;
-    }
-
-    .section-link:hover {
-      color: hsl(var(--text-primary));
-      text-decoration: underline;
-    }
-
-    /* ── Scrollbars ─────────────────────────────────────────────────── */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: hsl(var(--border));
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: hsl(220 20% 25%);
-    }
-
-    /* ── Card grid ──────────────────────────────────────────────────── */
-    .card-grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.25rem;
-    }
-
-    /* ── Select / inputs ────────────────────────────────────────────── */
-    select,
-    input[type=text] {
-      background: hsl(var(--bg-input));
-      border: 1px solid hsl(var(--border));
-      color: hsl(var(--text-primary));
-      padding: .55rem .75rem;
-      border-radius: .4rem;
-      font-size: .8rem;
-      font-family: var(--font-sans);
-      width: 100%;
-      outline: none;
-      transition: border-color .15s;
-    }
-
-    select:focus,
-    input:focus {
-      border-color: hsl(var(--accent)/.5);
-      box-shadow: var(--shadow-glow);
-    }
-
-    select option {
-      background: hsl(222 28% 10%);
-    }
-
-    /* ── Toast ──────────────────────────────────────────────────────── */
-    #toastArea {
-      position: fixed;
-      bottom: 1.5rem;
-      right: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: .5rem;
-      z-index: 9999;
-    }
-
-    .toast {
-      background: hsl(var(--bg-card));
-      border: 1px solid hsl(var(--border));
-      padding: .75rem 1.25rem;
-      border-radius: .5rem;
-      font-size: .78rem;
-      font-weight: 500;
-      color: hsl(var(--text-primary));
-      max-width: 340px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-      transition: opacity .3s;
-    }
-
-    .toast-success {
-      border-left: 4px solid hsl(var(--ok));
-    }
-
-    .toast-error {
-      border-left: 4px solid hsl(var(--danger));
-    }
-
-    .toast-info {
-      border-left: 4px solid hsl(var(--accent));
-    }
-
-    /* ── Score breakdown bar ────────────────────────────────────────── */
-    .score-bar-row {
-      margin-bottom: .9rem;
-    }
-
-    .score-bar-label {
-      display: flex;
-      justify-content: space-between;
-      font-size: .78rem;
-      margin-bottom: .35rem;
-    }
-
-    .score-bar-name {
-      font-weight: 600;
-      color: hsl(var(--text-primary));
-    }
-
-    .score-bar-num {
-      font-family: var(--font-mono);
-      color: hsl(var(--text-muted));
-    }
-
-    /* ── PE category accent ─────────────────────────────────────────── */
-    .pe-cat {
-      color: hsl(var(--accent));
-      font-size: .7rem;
-      font-weight: 600;
-    }
-
-    /* ── Upload status ──────────────────────────────────────────────── */
-    #uploadStatus {
-      display: none;
-      margin-top: .75rem;
-      padding: .65rem 1rem;
-      border-radius: .4rem;
-      font-size: .78rem;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MARS — Malware Analysis & Reporting System</title>
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+/* ── Reset & base ────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;font-family:var(--font-sans);color-scheme:dark;}
+body{display:flex;flex-direction:column;background:hsl(var(--bg-base));color:hsl(var(--text-primary));-webkit-font-smoothing:antialiased;}
+#app{display:flex;flex:1;overflow:hidden;}
+
+/* ── Design tokens ───────────────────────────────────────────────── */
+:root {
+  --bg-base:      225 47% 4%; /* Deep dark dashboard canvas */
+  --bg-sidebar:   225 45% 6%; /* Slightly lighter sidebar */
+  --bg-card:      225 35% 8%; /* Dark glass card base */
+  --bg-card-2:    225 35% 10%; /* Inner panels */
+  --bg-input:     225 40% 5%;
+  --border:       225 30% 14%;
+  --border-glow:  250 84% 63%;
+  --text-primary: 210 40% 98%;
+  --text-muted:   215 20% 65%;
+  --text-dim:     215 15% 42%;
+  --accent:       250 84% 63%; /* Violet accent color */
+  --accent-2:     163 80% 50%; /* Green accent */
+  --danger:       0 84% 60%;
+  --warn:         25 95% 53%;
+  --ok:           142 70% 50%;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-title: 'Outfit', sans-serif;
+  --shadow-card: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 20px hsl(var(--accent) / 0.15);
+  --r: 0.75rem; /* 12px */
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────── */
+#sidebar{
+  width:240px;min-width:240px;
+  background:hsl(var(--bg-sidebar));
+  border-right:1px solid hsl(var(--border));
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;
+  padding:1rem 0;
+}
+.nav-brand{padding:.5rem 1.4rem 1.25rem;display:flex;align-items:center;gap:.75rem;border-bottom:1px solid hsl(var(--border));margin-bottom:.75rem;}
+.nav-brand-badge{background:linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));color:#fff;font-size:.75rem;font-weight:800;letter-spacing:.08em;padding:.3rem .75rem;border-radius:.4rem;font-family:var(--font-mono);box-shadow:0 0 15px hsl(var(--accent)/.35);}
+.nav-brand-name{font-size:.85rem;font-weight:700;color:hsl(var(--text-primary));line-height:1.2;font-family:var(--font-title);}
+.nav-brand-sub{font-size:.62rem;color:hsl(var(--text-dim));letter-spacing:.08em;text-transform:uppercase;font-weight:600;}
+.nav-section{padding:1.1rem 1.4rem .4rem;font-size:.62rem;font-weight:700;letter-spacing:.12em;color:hsl(var(--text-dim));text-transform:uppercase;}
+.nav-btn{
+  display:flex;align-items:center;gap:.75rem;
+  padding:.65rem 1.4rem;border:none;background:transparent;
+  color:hsl(var(--text-muted));font-family:var(--font-sans);font-size:.8rem;font-weight:500;
+  cursor:pointer;width:100%;text-align:left;
+  transition:all .15s ease;position:relative;
+}
+.nav-btn::before{
+  content:'';position:absolute;left:0;top:20%;bottom:20%;
+  width:3px;border-radius:0 2px 2px 0;background:hsl(var(--accent));
+  opacity:0;transition:opacity .15s;
+}
+.nav-btn:hover{background:hsl(var(--border)/.3);color:hsl(var(--text-primary));padding-left:1.55rem;}
+.nav-btn.active{background:hsl(var(--accent)/.06);color:hsl(var(--accent));font-weight:600;}
+.nav-btn.active::before{opacity:1;}
+.nav-icon{font-size:.95rem;width:1.3rem;text-align:center;flex-shrink:0;opacity:0.8;}
+.nav-badge{margin-left:auto;background:hsl(var(--danger)/.85);color:#fff;font-size:.58rem;padding:.12rem .4rem;border-radius:1rem;font-weight:700;box-shadow:0 0 8px hsl(var(--danger)/.3);}
+
+/* ── Main Area ──────────────────────────────────────────────────── */
+#main{flex:1;overflow:hidden;display:flex;flex-direction:column;background:hsl(var(--bg-base));}
+.page{display:none;flex:1;overflow-y:auto;padding:1.5rem;gap:1.25rem;}
+.page.active{display:flex;flex-direction:column;}
+
+/* ── Header Bar ─────────────────────────────────────────────────── */
+header{
+  background:hsl(var(--bg-sidebar));
+  border-bottom:1px solid hsl(var(--border));
+  padding:.85rem 1.5rem;flex-shrink:0;
+  display:flex;align-items:center;gap:1rem;
+}
+.hdr-brand{display:flex;align-items:center;gap:.85rem;}
+.hdr-badge{background:linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));color:#fff;font-size:.9rem;font-weight:800;letter-spacing:.08em;padding:.35rem .95rem;border-radius:.45rem;font-family:var(--font-mono);box-shadow:0 0 15px hsl(var(--accent)/.3);}
+.hdr-title{font-size:1.05rem;font-weight:700;color:hsl(var(--text-primary));letter-spacing:-.01em;font-family:var(--font-title);}
+.hdr-sub{font-size:.65rem;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.12em;margin-top:.05rem;font-weight:600;}
+#globalStatus{display:flex;align-items:center;gap:.5rem;font-size:.72rem;color:hsl(var(--text-muted));margin-left:auto;background:hsl(var(--border)/.3);padding:.35rem .75rem;border-radius:2rem;}
+#globalDot{width:8px;height:8px;border-radius:50%;background:hsl(var(--ok));box-shadow:0 0 8px hsl(var(--ok));animation:gDotPulse 1.8s infinite alternate;}
+@keyframes gDotPulse{from{transform:scale(0.9);opacity:0.8;}to{transform:scale(1.25);opacity:1;}}
+
+/* ── Status Bar ─────────────────────────────────────────────────── */
+#statusWrap{padding:.5rem 1.5rem 0;flex-shrink:0;}
+#analysisStatusBar{
+  border-radius:var(--r);padding:.65rem 1.15rem;font-size:.78rem;font-weight:500;
+  display:none;align-items:center;gap:.75rem;margin-bottom:.25rem;
+  background:hsl(var(--warn)/.08);border:1px solid hsl(var(--warn)/.3);color:hsl(var(--warn));
+}
+#analysisStatusBar.done{background:hsl(var(--ok)/.08);border-color:hsl(var(--ok)/.3);color:hsl(var(--ok));}
+#analysisStatusBar.failed{background:hsl(var(--danger)/.08);border-color:hsl(var(--danger)/.3);color:hsl(var(--danger));}
+.pulse{animation:pulse .9s infinite alternate;}
+@keyframes pulse{from{opacity:1;}to{opacity:.35;}}
+
+/* ── Cards ──────────────────────────────────────────────────────── */
+.card{
+  background:rgba(15, 20, 36, 0.4);
+  border:1px solid rgba(255, 255, 255, 0.05);
+  border-radius:var(--r);padding:1.35rem;
+  box-shadow:var(--shadow-card);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  position:relative;
+}
+.card-title{font-size:.88rem;font-weight:700;color:hsl(var(--text-primary));margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;letter-spacing:-.01em;font-family:var(--font-title);}
+.card-title .ct-icon{font-size:1.1rem;color:hsl(var(--accent));}
+
+/* ── Data tables ────────────────────────────────────────────────── */
+.tbl-wrap{border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden;overflow-x:auto;}
+.data-table{width:100%;border-collapse:collapse;font-size:.78rem;}
+.data-table th{
+  background:rgba(255, 255, 255, 0.02);color:hsl(var(--text-muted));
+  text-align:left;padding:.65rem .95rem;font-size:.67rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:.08em;
+  border-bottom:1px solid hsl(var(--border));white-space:nowrap;
+}
+.data-table td{padding:.6rem .95rem;border-bottom:1px solid hsl(var(--border)/.4);vertical-align:middle;word-break:break-all;color:hsl(var(--text-primary));}
+.data-table tr:last-child td{border-bottom:none;}
+.data-table tr:hover td{background:hsl(var(--border)/.2);}
+.data-table .mono{font-family:var(--font-mono);font-size:.7rem;color:hsl(var(--text-primary));opacity:0.95;}
+
+/* ── Badges ─────────────────────────────────────────────────────── */
+.badge{display:inline-block;padding:.18rem .55rem;border-radius:.25rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;}
+.badge-complete,.badge-enabled{background:hsl(var(--ok)/.12);color:hsl(var(--ok));border:1px solid hsl(var(--ok)/.25);}
+.badge-failed,.badge-disabled{background:hsl(var(--danger)/.12);color:hsl(var(--danger));border:1px solid hsl(var(--danger)/.25);}
+.badge-queued{background:hsl(210 100% 56%/.12);color:hsl(210 100% 65%);border:1px solid hsl(210 100% 56%/.25);}
+.badge-processing{background:hsl(var(--warn)/.12);color:hsl(var(--warn));border:1px solid hsl(var(--warn)/.25);}
+.badge-na{background:hsl(220 15% 15%);color:hsl(var(--text-dim));border:1px solid hsl(var(--border));}
+.badge-terminated{background:hsl(0 0% 50%/.12);color:hsl(0 0% 75%);border:1px solid hsl(0 0% 50%/.25);}
+.badge-flagged{background:hsl(var(--danger)/.1);color:#ff6b6b;border:1px solid hsl(var(--danger)/.2);}
+.badge-clean{background:hsl(var(--ok)/.1);color:hsl(var(--ok));border:1px solid hsl(var(--ok)/.2);}
+
+/* ── Score pills ────────────────────────────────────────────────── */
+.score-pill{font-family:var(--font-mono);font-size:.72rem;font-weight:700;padding:.2rem .55rem;border-radius:.25rem;}
+.score-malicious{background:hsl(var(--danger)/.12);color:#ff4d4d;border:1px solid hsl(var(--danger)/.25);box-shadow:0 0 10px hsl(var(--danger)/.1);}
+.score-highrisk{background:hsl(30 100% 50%/.12);color:#ff9500;border:1px solid hsl(30 100% 50%/.25);box-shadow:0 0 10px hsl(30 100% 50%/.1);}
+.score-suspicious{background:hsl(var(--warn)/.12);color:hsl(var(--warn));border:1px solid hsl(var(--warn)/.25);box-shadow:0 0 10px hsl(var(--warn)/.1);}
+.score-clean{background:hsl(var(--ok)/.1);color:hsl(var(--ok));border:1px solid hsl(var(--ok)/.2);box-shadow:0 0 10px hsl(var(--ok)/.05);}
+
+/* ── Verdict banner ─────────────────────────────────────────────── */
+.verdict-banner{padding:1.25rem 1.5rem;border-radius:var(--r);display:flex;align-items:center;gap:1.5rem;margin-bottom:1rem;position:relative;overflow:hidden;}
+.verdict-malicious{background:linear-gradient(135deg, hsl(var(--danger)/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(var(--danger)/.3);}
+.verdict-highrisk{background:linear-gradient(135deg, hsl(30 100% 50%/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(30 100% 50%/.3);}
+.verdict-suspicious{background:linear-gradient(135deg, hsl(var(--warn)/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(var(--warn)/.3);}
+.verdict-clean{background:linear-gradient(135deg, hsl(var(--ok)/.08) 0%, hsl(var(--bg-card)) 100%);border:1px solid hsl(var(--ok)/.3);}
+.verdict-label{font-size:1.75rem;font-weight:800;font-family:var(--font-mono);letter-spacing:-.02em;text-shadow:0 0 15px currentColor;}
+.verdict-score{font-size:.78rem;color:hsl(var(--text-muted));font-weight:500;}
+
+/* ── Gauge ──────────────────────────────────────────────────────── */
+.gauge-track{background:rgba(255, 255, 255, 0.05);border:1px solid rgba(255, 255, 255, 0.08);border-radius:1rem;height:10px;flex:1;overflow:hidden;}
+.gauge-fill{height:100%;border-radius:1rem;transition:width .8s cubic-bezier(.4,0,.2,1);box-shadow:0 0 10px currentColor;background-image:linear-gradient(90deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);}
+
+/* ── Terminal log ────────────────────────────────────────────────── */
+.log-box{
+  background:#03050a;border:1px solid hsl(var(--border));
+  border-radius:.5rem;padding:1rem 1.25rem;
+  font-family:var(--font-mono);font-size:.72rem;line-height:1.7;
+  overflow-y:auto;color:#39ff14;flex:1;min-height:120px;
+  box-shadow:inset 0 0 15px rgba(0,0,0,0.8);
+  white-space:pre-wrap;
+}
+.log-box .lg-info{color:#00d2ff;}
+.log-box .lg-warn{color:#ffaa00;}
+.log-box .lg-crit{color:#ff3333;}
+.log-box .lg-dim{color:#495670;}
+.log-box .lg-plus{color:#39ff14;}
+.log-box .lg-sys{color:#d682ff;}
+.mini-log{max-height:180px;font-size:.68rem;}
+
+/* ── Upload panel ───────────────────────────────────────────────── */
+.upload-zone{
+  background:rgba(255, 255, 255, 0.02);
+  border:2px dashed hsl(var(--border));border-radius:var(--r);
+  padding:2.5rem 1.5rem;text-align:center;cursor:pointer;
+  transition:all .2s ease-in-out;
+  position:relative;overflow:hidden;
+}
+.upload-zone:hover,.upload-zone.dragover{
+  border-color:hsl(var(--accent));
+  background:hsl(var(--accent)/.03);
+  box-shadow:var(--shadow-glow);
+  transform:scale(1.01);
+}
+.upload-zone .uz-icon{font-size:2.5rem;margin-bottom:.75rem;display:block;filter:drop-shadow(0 0 8px hsl(var(--accent)/.3));}
+
+/* ── Stat chips ─────────────────────────────────────────────────── */
+.stat-row{display:flex;gap:.75rem;flex-wrap:wrap;}
+.stat-chip{
+  background:hsl(var(--bg-card-2));border:1px solid hsl(var(--border));
+  border-radius:.5rem;padding:.75rem 1rem;display:flex;flex-direction:column;gap:.25rem;flex:1;min-width:80px;
+}
+.stat-val{font-size:1.6rem;font-weight:800;font-family:var(--font-mono);line-height:1;}
+.stat-lbl{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:hsl(var(--text-dim));font-weight:700;margin-top:.2rem;}
+
+/* ── KV rows ────────────────────────────────────────────────────── */
+.kv-row{display:flex;border-bottom:1px solid hsl(var(--border)/.4);padding:.45rem 0;font-size:.76rem;align-items:center;}
+.kv-row:last-child{border-bottom:none;}
+.kv-key{width:46%;color:hsl(var(--text-muted));font-weight:600;flex-shrink:0;font-size:.74rem;}
+.kv-val{font-family:var(--font-mono);font-size:.72rem;color:hsl(var(--text-primary));word-break:break-all;opacity:0.95;}
+
+/* ── Strings accordion ──────────────────────────────────────────── */
+.artifact-section{margin-bottom:.75rem;}
+.artifact-header{
+  display:flex;align-items:center;gap:.75rem;padding:.65rem 1rem;
+  background:hsl(var(--bg-card-2));border:1px solid hsl(var(--border));
+  border-radius:.45rem;cursor:pointer;user-select:none;
+  transition:all .15s ease;
+}
+.artifact-header:hover{background:hsl(var(--border)/.4);border-color:hsl(var(--accent)/.3);}
+.artifact-label{font-size:.8rem;font-weight:700;color:hsl(var(--text-primary));font-family:var(--font-title);}
+.artifact-cnt{font-size:.68rem;font-family:var(--font-mono);color:hsl(var(--accent));background:hsl(var(--accent)/.1);padding:.1rem .4rem;border-radius:.25rem;}
+.artifact-toggle{margin-left:auto;color:hsl(var(--text-dim));font-size:.75rem;transition:transform .15s;}
+.artifact-header.open .artifact-toggle{transform:rotate(180deg);color:hsl(var(--accent));}
+.artifact-body{
+  display:none;padding:.9rem 1rem;
+  background:rgba(255, 255, 255, 0.01);border:1px solid hsl(var(--border));
+  border-top:none;border-radius:0 0 .45rem .45rem;
+  font-family:var(--font-mono);font-size:.72rem;color:hsl(var(--text-muted));
+  line-height:1.8;max-height:260px;overflow-y:auto;
+  box-shadow:inset 0 2px 10px rgba(0,0,0,0.5);
+}
+.artifact-body.open{display:block;}
+
+/* ── YARA chips ─────────────────────────────────────────────────── */
+.yara-rule{
+  display:inline-block;margin:.25rem .2rem;padding:.25rem .75rem;
+  background:hsl(var(--danger)/.08);color:#ff5555;
+  border:1px solid hsl(var(--danger)/.25);border-radius:.3rem;
+  font-size:.7rem;font-family:var(--font-mono);box-shadow:0 0 10px rgba(255,0,0,0.05);
+}
+.yara-clean{color:hsl(var(--ok));font-size:.85rem;font-weight:700;}
+
+/* ── Dynamic tabs ───────────────────────────────────────────────── */
+.tab-strip{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem;}
+.tab-btn{
+  padding:.45rem .95rem;border-radius:.4rem;
+  border:1px solid hsl(var(--border));background:transparent;
+  color:hsl(var(--text-muted));font-size:.72rem;font-weight:600;
+  cursor:pointer;font-family:var(--font-sans);
+  display:flex;align-items:center;gap:.4rem;transition:all .15s ease;
+}
+.tab-btn:hover{background:hsl(var(--border)/.4);color:hsl(var(--text-primary));border-color:hsl(var(--text-dim));}
+.tab-btn.active{background:hsl(var(--accent)/.1);color:hsl(var(--accent));border-color:hsl(var(--accent)/.45);box-shadow:var(--shadow-glow);}
+.tab-count{background:hsl(var(--border));color:hsl(var(--text-muted));font-size:.58rem;padding:.05rem .35rem;border-radius:.75rem;min-width:1.2rem;text-align:center;font-family:var(--font-mono);}
+.tab-btn.active .tab-count{background:hsl(var(--accent)/.2);color:hsl(var(--accent));}
+
+/* ── Download buttons ───────────────────────────────────────────── */
+.dl-btn{
+  display:inline-flex;align-items:center;gap:.45rem;padding:.55rem 1.15rem;
+  border-radius:.45rem;border:1px solid;font-size:.78rem;font-weight:700;
+  cursor:pointer;text-decoration:none;transition:all .15s ease;white-space:nowrap;
+}
+.dl-btn-json{border-color:hsl(var(--accent)/.35);color:hsl(var(--accent));background:hsl(var(--accent)/.06);}
+.dl-btn-json:hover{background:hsl(var(--accent)/.15);box-shadow:var(--shadow-glow);transform:translateY(-1px);}
+.dl-btn-pdf{border-color:hsl(var(--danger)/.35);color:#ff5f5f;background:hsl(var(--danger)/.06);}
+.dl-btn-pdf:hover{background:hsl(var(--danger)/.15);box-shadow:0 0 15px hsl(var(--danger)/.15);transform:translateY(-1px);}
+.dl-btn-pcap{border-color:hsl(210 100% 56%/.35);color:hsl(210 100% 68%);background:hsl(210 100% 56%/.06);}
+.dl-btn-pcap:hover{background:hsl(210 100% 56%/.15);box-shadow:0 0 15px rgba(30,144,255,0.15);transform:translateY(-1px);}
+.dl-btn-view{border-color:hsl(var(--accent-2)/.35);color:hsl(var(--accent-2));background:hsl(var(--accent-2)/.06);}
+.dl-btn-view:hover{background:hsl(var(--accent-2)/.15);box-shadow:0 0 15px hsl(var(--accent-2)/.15);transform:translateY(-1px);}
+
+/* ── Empty state ────────────────────────────────────────────────── */
+.empty-state{padding:2.5rem 2rem;text-align:center;color:hsl(var(--text-dim));font-size:.8rem;}
+.empty-icon{font-size:2.2rem;margin-bottom:.5rem;display:block;filter:opacity(0.35);}
+
+/* ── Page header ────────────────────────────────────────────────── */
+.page-hdr{font-size:1.15rem;font-weight:700;color:hsl(var(--text-primary));display:flex;align-items:center;gap:.6rem;flex-shrink:0;letter-spacing:-.01em;font-family:var(--font-title);}
+.page-hdr-sub{font-size:.75rem;color:hsl(var(--text-dim));font-weight:400;margin-left:.25rem;font-family:var(--font-sans);}
+
+/* ── History table ──────────────────────────────────────────────── */
+.history-wrap{border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden;overflow-x:auto;flex:1;}
+.section-link{color:hsl(var(--accent));text-decoration:none;font-size:.78rem;transition:color .12s ease;}
+.section-link:hover{color:hsl(var(--text-primary));text-decoration:underline;}
+
+/* ── Scrollbars ─────────────────────────────────────────────────── */
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:hsl(220 20% 25%);}
+
+/* ── Card grid ──────────────────────────────────────────────────── */
+.card-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;}
+
+/* ── Select / inputs ────────────────────────────────────────────── */
+select,input[type=text]{
+  background:hsl(var(--bg-input));border:1px solid hsl(var(--border));
+  color:hsl(var(--text-primary));padding:.55rem .75rem;
+  border-radius:.4rem;font-size:.8rem;font-family:var(--font-sans);
+  width:100%;outline:none;transition:border-color .15s;
+}
+select:focus,input:focus{border-color:hsl(var(--accent)/.5);box-shadow:var(--shadow-glow);}
+select option{background:hsl(222 28% 10%);}
+
+/* ── Toast ──────────────────────────────────────────────────────── */
+#toastArea{position:fixed;bottom:1.5rem;right:1.5rem;display:flex;flex-direction:column;gap:.5rem;z-index:9999;}
+.toast{
+  background:hsl(var(--bg-card));border:1px solid hsl(var(--border));
+  padding:.75rem 1.25rem;border-radius:.5rem;font-size:.78rem;font-weight:500;
+  color:hsl(var(--text-primary));max-width:340px;
+  box-shadow:0 10px 30px rgba(0,0,0,0.6);transition:opacity .3s;
+}
+.toast-success{border-left:4px solid hsl(var(--ok));}
+.toast-error{border-left:4px solid hsl(var(--danger));}
+.toast-info{border-left:4px solid hsl(var(--accent));}
+
+/* ── Score breakdown bar ────────────────────────────────────────── */
+.score-bar-row{margin-bottom:.9rem;}
+.score-bar-label{display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.35rem;}
+.score-bar-name{font-weight:600;color:hsl(var(--text-primary));}
+.score-bar-num{font-family:var(--font-mono);color:hsl(var(--text-muted));}
+
+/* ── PE category accent ─────────────────────────────────────────── */
+.pe-cat{color:hsl(var(--accent));font-size:.7rem;font-weight:600;}
+
+/* ── Upload status ──────────────────────────────────────────────── */
+#uploadStatus{display:none;margin-top:.75rem;padding:.65rem 1rem;border-radius:.4rem;font-size:.78rem;}
+</style>
 </head>
-
 <body>
 
-  <!-- ═══════ HEADER ═══════════════════════════════════════════════════ -->
-  <header>
-    <div class="hdr-brand">
-      <div class="hdr-badge">MARS</div>
-      <div>
-        <div class="hdr-title">Malware Analysis &amp; Reporting System</div>
-        <div class="hdr-sub">Dual-VM Detonation Sandbox</div>
+<!-- ═══════ HEADER ═══════════════════════════════════════════════════ -->
+<header>
+  <div class="hdr-brand">
+    <div class="hdr-badge">MARS</div>
+    <div>
+      <div class="hdr-title">Malware Analysis &amp; Reporting System</div>
+      <div class="hdr-sub">Dual-VM Detonation Sandbox</div>
+    </div>
+  </div>
+  <div id="globalStatus">
+    <span id="globalDot"></span>
+    <span id="globalStatusText">Ready</span>
+  </div>
+</header>
+
+<!-- ═══════ APP BODY ════════════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- ── SIDEBAR ──────────────────────────────────────────────────── -->
+  <nav id="sidebar">
+    <div class="nav-section">Analysis</div>
+    <button class="nav-btn active" onclick="showPage('upload')" id="nav-upload">
+      <span class="nav-icon">⬆</span> Upload &amp; Ingest
+    </button>
+    <button class="nav-btn" onclick="showPage('overview')" id="nav-overview">
+      <span class="nav-icon">🏠</span> Overview
+    </button>
+
+    <div class="nav-section">Results</div>
+    <button class="nav-btn" onclick="showPage('logs')" id="nav-logs">
+      <span class="nav-icon">📋</span> Execution Logs
+    </button>
+    <button class="nav-btn" onclick="showPage('pe')" id="nav-pe">
+      <span class="nav-icon">📄</span> PE File Structure
+    </button>
+    <button class="nav-btn" onclick="showPage('mitigations')" id="nav-mitigations">
+      <span class="nav-icon">🛡</span> Mitigations &amp; Security
+    </button>
+    <button class="nav-btn" onclick="showPage('strings')" id="nav-strings">
+      <span class="nav-icon">🔤</span> Strings &amp; Artifacts
+    </button>
+    <button class="nav-btn" onclick="showPage('yara')" id="nav-yara">
+      <span class="nav-icon">🐛</span> YARA &amp; Detections
+    </button>
+    <button class="nav-btn" onclick="showPage('dynamic')" id="nav-dynamic">
+      <span class="nav-icon">⚡</span> Dynamic Telemetry
+    </button>
+    <button class="nav-btn" onclick="showPage('reports')" id="nav-reports">
+      <span class="nav-icon">📑</span> Reports &amp; History
+    </button>
+  </nav>
+
+  <!-- ── MAIN ─────────────────────────────────────────────────────── -->
+  <div id="main">
+    <div id="statusWrap">
+      <div id="analysisStatusBar">
+        <span class="pulse" id="statusDot">●</span>
+        <span id="statusBarText">Analyzing…</span>
       </div>
     </div>
-    <div id="globalStatus">
-      <span id="globalDot"></span>
-      <span id="globalStatusText">Ready</span>
-    </div>
-  </header>
 
-  <!-- ═══════ APP BODY ════════════════════════════════════════════════ -->
-  <div id="app">
+    <!-- ══ PAGE: UPLOAD ════════════════════════════════════════════ -->
+    <div class="page active" id="page-upload">
+      <div style="display:grid;grid-template-columns:360px 1fr;gap:1rem;flex:1;min-height:0;">
 
-    <!-- ── SIDEBAR ──────────────────────────────────────────────────── -->
-    <nav id="sidebar">
-      <div class="nav-section">Analysis</div>
-      <button class="nav-btn active" onclick="showPage('upload')" id="nav-upload">
-        <span class="nav-icon">⬆</span> Upload &amp; Ingest
-      </button>
-      <button class="nav-btn" onclick="showPage('overview')" id="nav-overview">
-        <span class="nav-icon">🏠</span> Overview
-      </button>
+        <div style="display:flex;flex-direction:column;gap:1rem;">
+          <!-- Upload card -->
+          <div class="card">
+            <div class="card-title"><span class="ct-icon">⬆</span> Ingest Malware Sample</div>
+            <p style="font-size:.75rem;color:hsl(var(--text-dim));margin-bottom:1rem;line-height:1.5;">Submit a .exe, .dll, .sys, .zip, or .msi file for analysis. Results stream live.</p>
 
-      <div class="nav-section">Results</div>
-      <button class="nav-btn" onclick="showPage('logs')" id="nav-logs">
-        <span class="nav-icon">📋</span> Execution Logs
-      </button>
-      <button class="nav-btn" onclick="showPage('pe')" id="nav-pe">
-        <span class="nav-icon">📄</span> PE File Structure
-      </button>
-      <button class="nav-btn" onclick="showPage('mitigations')" id="nav-mitigations">
-        <span class="nav-icon">🛡</span> Mitigations &amp; Security
-      </button>
-      <button class="nav-btn" onclick="showPage('strings')" id="nav-strings">
-        <span class="nav-icon">🔤</span> Strings &amp; Artifacts
-      </button>
-      <button class="nav-btn" onclick="showPage('yara')" id="nav-yara">
-        <span class="nav-icon">🐛</span> YARA &amp; Detections
-      </button>
-      <button class="nav-btn" onclick="showPage('dynamic')" id="nav-dynamic">
-        <span class="nav-icon">⚡</span> Dynamic Telemetry
-      </button>
-      <button class="nav-btn" onclick="showPage('reports')" id="nav-reports">
-        <span class="nav-icon">📑</span> Reports &amp; History
-      </button>
-    </nav>
+            <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.35rem;">Detonation Strategy</label>
+            <select id="analysis_type" style="margin-bottom:.9rem;">
+              <option value="full_detonation">Full Detonation (Static + Dynamic)</option>
+              <option value="static_only">Static Analysis Only</option>
+              <option value="dynamic_only">Dynamic Sandbox Only</option>
+            </select>
 
-    <!-- ── MAIN ─────────────────────────────────────────────────────── -->
-    <div id="main">
-      <div id="statusWrap">
-        <div id="analysisStatusBar">
-          <span class="pulse" id="statusDot">●</span>
-          <span id="statusBarText">Analyzing…</span>
-        </div>
-      </div>
-
-      <!-- ══ PAGE: UPLOAD ════════════════════════════════════════════ -->
-      <div class="page active" id="page-upload">
-        <div style="display:grid;grid-template-columns:360px 1fr;gap:1rem;flex:1;min-height:0;">
-
-          <div style="display:flex;flex-direction:column;gap:1rem;">
-            <!-- Upload card -->
-            <div class="card">
-              <div class="card-title"><span class="ct-icon">⬆</span> Ingest Malware Sample</div>
-              <p style="font-size:.75rem;color:hsl(var(--text-dim));margin-bottom:1rem;line-height:1.5;">Submit a .exe,
-                .dll, .sys, .zip, or .msi file for analysis. Results stream live.</p>
-
-              <label
-                style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.35rem;">Detonation
-                Strategy</label>
-              <select id="analysis_type" style="margin-bottom:.9rem;">
-                <option value="full_detonation">Full Detonation (Static + Dynamic)</option>
-                <option value="static_only">Static Analysis Only</option>
-                <option value="dynamic_only">Dynamic Sandbox Only</option>
-              </select>
-
-              <div id="dropZone" class="upload-zone" onclick="document.getElementById('fileInput').click()"
-                ondragover="ev(event,'over')" ondragleave="ev(event,'leave')" ondrop="ev(event,'drop')">
-                <span class="uz-icon">⚡</span>
-                <div style="font-size:.88rem;font-weight:700;color:hsl(var(--text-primary));margin-bottom:.3rem;">Drag
-                  &amp; Drop Sample</div>
-                <div style="font-size:.72rem;color:hsl(var(--text-dim));">or click to browse files</div>
-                <input type="file" id="fileInput" style="display:none;">
-              </div>
-              <div id="uploadStatus"></div>
+            <div id="dropZone" class="upload-zone"
+                 onclick="document.getElementById('fileInput').click()"
+                 ondragover="ev(event,'over')" ondragleave="ev(event,'leave')" ondrop="ev(event,'drop')">
+              <span class="uz-icon">⚡</span>
+              <div style="font-size:.88rem;font-weight:700;color:hsl(var(--text-primary));margin-bottom:.3rem;">Drag &amp; Drop Sample</div>
+              <div style="font-size:.72rem;color:hsl(var(--text-dim));">or click to browse files</div>
+              <input type="file" id="fileInput" style="display:none;">
             </div>
+            <div id="uploadStatus"></div>
+          </div>
 
-            <!-- Stats card -->
-            <div class="card">
-              <div class="card-title"><span class="ct-icon">📊</span> Sandbox Statistics</div>
-              <div class="stat-row">
-                <div class="stat-chip">
-                  <span class="stat-val" id="st-total" style="color:hsl(var(--accent));">0</span>
-                  <span class="stat-lbl">Analyzed</span>
-                </div>
-                <div class="stat-chip">
-                  <span class="stat-val" id="st-proc" style="color:hsl(var(--warn));">0</span>
-                  <span class="stat-lbl">Active</span>
-                </div>
-                <div class="stat-chip">
-                  <span class="stat-val" id="st-mal" style="color:hsl(var(--danger));">0</span>
-                  <span class="stat-lbl">Malicious</span>
-                </div>
+          <!-- Stats card -->
+          <div class="card">
+            <div class="card-title"><span class="ct-icon">📊</span> Sandbox Statistics</div>
+            <div class="stat-row">
+              <div class="stat-chip">
+                <span class="stat-val" id="st-total" style="color:hsl(var(--accent));">0</span>
+                <span class="stat-lbl">Analyzed</span>
               </div>
-              <div
-                style="margin-top:.75rem;padding:.5rem .75rem;background:hsl(var(--bg-card-2));border-radius:.4rem;display:flex;align-items:center;gap:.5rem;">
-                <span
-                  style="font-size:.65rem;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;font-weight:700;">Avg
-                  Score</span>
-                <span class="stat-val" id="st-avg" style="font-size:1.1rem;color:hsl(var(--accent-2));">—</span>
-                <span style="font-size:.7rem;color:hsl(var(--text-dim));">/ 10</span>
+              <div class="stat-chip">
+                <span class="stat-val" id="st-proc" style="color:hsl(var(--warn));">0</span>
+                <span class="stat-lbl">Active</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-val" id="st-mal" style="color:hsl(var(--danger));">0</span>
+                <span class="stat-lbl">Malicious</span>
               </div>
             </div>
-          </div>
-
-          <!-- History table -->
-          <div class="card" style="display:flex;flex-direction:column;min-height:0;">
-            <div class="card-title"><span class="ct-icon">🕐</span> Analysis Queue &amp; History</div>
-            <div class="history-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>SHA-256</th>
-                    <th>Filename</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                    <th>Risk Score</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="historyBody">
-                  {% if history %}
-                  {% for item in history %}
-                  <tr id="row-{{ item.sha256_hash }}">
-                    <td class="mono" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                      title="{{ item.sha256_hash }}">{{ item.sha256_hash[:16] }}…</td>
-                    <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                      <a href="#" onclick="loadAnalysis('{{ item.sha256_hash }}');return false;" class="section-link"
-                        style="font-weight:600;">{{ item.filename }}</a>
-                    </td>
-                    <td style="color:hsl(var(--text-dim));font-size:.7rem;white-space:nowrap;">{{
-                      item.timestamp.strftime('%Y-%m-%d %H:%M') if item.timestamp else '-' }}</td>
-                    <td><span class="badge badge-{{ item.status.lower() }}">{{ item.status }}</span></td>
-                    <td>
-                      {% if item.risk_score is not none %}
-                      {% set s = item.risk_score / 10.0 %}
-                      {% if s >= 7.5 %}<span class="score-pill score-malicious">{{ '%.1f'|format(s) }}</span>
-                      {% elif s >= 5.0 %}<span class="score-pill score-highrisk">{{ '%.1f'|format(s) }}</span>
-                      {% elif s >= 3.0 %}<span class="score-pill score-suspicious">{{ '%.1f'|format(s) }}</span>
-                      {% else %}<span class="score-pill score-clean">{{ '%.1f'|format(s) }}</span>{% endif %}
-                      {% else %}<span style="color:hsl(var(--text-dim));">—</span>{% endif %}
-                    </td>
-                    <td>
-                      <a href="#" onclick="loadAnalysis('{{ item.sha256_hash }}');return false;"
-                        class="section-link">Load ↙</a>
-                      &nbsp;
-                      <a href="/report/{{ item.sha256_hash }}" class="section-link" target="_blank">Report ↗</a>
-                      {% if item.status == 'Processing' or item.status == 'Queued' %}
-                      &nbsp;
-                      <a href="#" onclick="terminateAnalysis('{{ item.sha256_hash }}');return false;"
-                        class="section-link" style="color:hsl(var(--danger));">Terminate 🛑</a>
-                      {% endif %}
-                    </td>
-                  </tr>
-                  {% endfor %}
-                  {% else %}
-                  <tr>
-                    <td colspan="6" class="empty-state"><span class="empty-icon">🧬</span>No samples ingested yet.</td>
-                  </tr>
-                  {% endif %}
-                </tbody>
-              </table>
+            <div style="margin-top:.75rem;padding:.5rem .75rem;background:hsl(var(--bg-card-2));border-radius:.4rem;display:flex;align-items:center;gap:.5rem;">
+              <span style="font-size:.65rem;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;font-weight:700;">Avg Score</span>
+              <span class="stat-val" id="st-avg" style="font-size:1.1rem;color:hsl(var(--accent-2));">—</span>
+              <span style="font-size:.7rem;color:hsl(var(--text-dim));">/ 10</span>
             </div>
           </div>
         </div>
-      </div><!-- /page-upload -->
 
-      <!-- ══ PAGE: OVERVIEW ══════════════════════════════════════════ -->
-      <div class="page" id="page-overview">
-        <div class="page-hdr">
-          🏠 Overview
-          <span class="page-hdr-sub" id="ovFilename"></span>
-          <div id="ovPdfLinkContainer" style="margin-left:auto; display:none;">
-            <a href="#" id="ovPdfLink" class="dl-btn dl-btn-pdf" target="_blank">📄 View PDF Report</a>
-          </div>
-        </div>
-
-        <!-- Verdict banner -->
-        <div id="verdictBanner" style="display:none;" class="verdict-banner">
-          <div style="flex-shrink:0;">
-            <div class="verdict-label" id="ovVerdict">—</div>
-            <div class="verdict-score">Threat Verdict</div>
-          </div>
-          <div style="flex:1;">
-            <div
-              style="display:flex;justify-content:space-between;font-size:.7rem;color:hsl(var(--text-muted));margin-bottom:.35rem;">
-              <span>Risk Score</span>
-              <span id="ovScore" style="font-family:var(--font-mono);font-weight:700;">—</span>
-            </div>
-            <div class="gauge-track">
-              <div class="gauge-fill" id="ovGauge" style="width:0%;background:hsl(var(--ok));"></div>
-            </div>
-          </div>
-          <div><span class="badge" id="ovConfidence">LOW</span></div>
-        </div>
-
-        <div class="card-grid-2" style="flex:1;min-height:0;">
-          <!-- File summary -->
-          <div class="card" style="overflow-y:auto;">
-            <div class="card-title"><span class="ct-icon">📁</span> File Summary</div>
-            <div id="ovSummary">
-              <div class="empty-state"><span class="empty-icon">📁</span>No analysis loaded.</div>
-            </div>
-          </div>
-          <!-- Security posture -->
-          <div class="card" style="overflow-y:auto;">
-            <div class="card-title"><span class="ct-icon">🛡</span> Security Posture</div>
-            <div class="tbl-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Mitigation</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody id="ovSecBody">
-                  <tr>
-                    <td colspan="2" class="empty-state">No data.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <!-- Key findings -->
-          <div class="card" style="overflow-y:auto;">
-            <div class="card-title"><span class="ct-icon">🔍</span> Key Findings</div>
-            <div id="ovFindings">
-              <div class="empty-state"><span class="empty-icon">🔍</span>Run an analysis first.</div>
-            </div>
-          </div>
-          <!-- Mini log -->
-          <div class="card" style="display:flex;flex-direction:column;">
-            <div class="card-title"><span class="ct-icon">📋</span> Recent Log</div>
-            <div class="log-box mini-log" id="ovLog"></div>
-          </div>
-        </div>
-      </div><!-- /page-overview -->
-
-      <!-- ══ PAGE: LOGS ══════════════════════════════════════════════ -->
-      <div class="page" id="page-logs" style="gap:.75rem;">
-        <div class="page-hdr">
-          📋 Execution Logs
-          <button onclick="clearLogs()"
-            style="margin-left:auto;padding:.25rem .65rem;font-size:.68rem;background:transparent;border:1px solid hsl(var(--border));border-radius:.3rem;color:hsl(var(--text-dim));cursor:pointer;">Clear</button>
-          <button onclick="scrollLogsBottom()"
-            style="padding:.25rem .65rem;font-size:.68rem;background:transparent;border:1px solid hsl(var(--border));border-radius:.3rem;color:hsl(var(--text-dim));cursor:pointer;">↓
-            Bottom</button>
-        </div>
-        <div class="log-box" id="fullLog" style="flex:1;min-height:0;font-size:.73rem;"></div>
-      </div>
-
-      <!-- ══ PAGE: PE STRUCTURE ══════════════════════════════════════ -->
-      <div class="page" id="page-pe" style="gap:.75rem;">
-        <div class="page-hdr">📄 PE File Structure</div>
-        <div class="tbl-wrap" style="flex:1;overflow-y:auto;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width:130px;">Category</th>
-                <th>Property</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody id="peBody">
-              <tr>
-                <td colspan="3" class="empty-state"><span class="empty-icon">📄</span>No PE data yet.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- ══ PAGE: MITIGATIONS ═══════════════════════════════════════ -->
-      <div class="page" id="page-mitigations" style="gap:.75rem;">
-        <div class="page-hdr">🛡 Mitigations &amp; Security Controls</div>
-        <div class="tbl-wrap" style="flex:1;overflow-y:auto;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Mitigation</th>
-                <th style="width:120px;">Status</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody id="mitBody">
-              <tr>
-                <td colspan="3" class="empty-state"><span class="empty-icon">🛡</span>No data yet.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- ══ PAGE: STRINGS ══════════════════════════════════════════ -->
-      <div class="page" id="page-strings" style="gap:.75rem; overflow-y:auto;">
-        <div class="page-hdr">🔤 Strings &amp; Extracted Artifacts</div>
-
-        <!-- Unpacked Archive Inventory Card -->
-        <div class="card" id="pkgUnpackerCard" style="display:none; margin-bottom:.5rem;">
-          <div class="card-title"><span class="ct-icon">📦</span> Unpacked Archive Inventory</div>
-          <div class="tbl-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Relative Path</th>
-                  <th>Size</th>
-                  <th>Verdict</th>
-                  <th>SHA-256</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="pkgUnpackerBody">
-                <tr>
-                  <td colspan="5" class="empty-state">No files extracted.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div style="flex:1; min-height:300px;" id="stringsContainer">
-          <div class="empty-state"><span class="empty-icon">🔤</span>No string data yet.</div>
-        </div>
-      </div>
-
-      <!-- ══ PAGE: YARA ══════════════════════════════════════════════ -->
-      <div class="page" id="page-yara" style="gap:.75rem;">
-        <div class="page-hdr">🐛 YARA Signatures &amp; Detections</div>
-        <div style="flex:1;overflow-y:auto;" id="yaraContainer">
-          <div class="empty-state"><span class="empty-icon">🐛</span>No YARA results yet.</div>
-        </div>
-      </div>
-
-      <!-- ══ PAGE: DYNAMIC ══════════════════════════════════════════ -->
-      <div class="page" id="page-dynamic" style="gap:.75rem; overflow-y:auto;">
-        <div class="page-hdr">
-          ⚡ Dynamic Sandbox Telemetry
-          <span id="dynStatus" style="font-size:.68rem;color:hsl(var(--text-dim));font-weight:400;margin-left:.5rem;">●
-            Idle</span>
-        </div>
-
-        <!-- Premium Structured container -->
-        <div id="premiumDynContainer" style="display:none; flex-direction:column; gap:.75rem; width: 100%;"></div>
-
-        <!-- Legacy fallback view container -->
-        <div id="legacyDynContainer"
-          style="display:flex; flex-direction:column; gap:.75rem; flex:1; min-height:0; width: 100%;">
-          <div class="tab-strip" id="dynTabStrip">
-            <button class="tab-btn active" onclick="setDynFilter('All')" id="dtab-All">All <span class="tab-count"
-                id="dcnt-All">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Filesystem')" id="dtab-Filesystem">📂 Filesystem <span
-                class="tab-count" id="dcnt-Filesystem">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Registry')" id="dtab-Registry">🗝 Registry <span
-                class="tab-count" id="dcnt-Registry">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Persistence')" id="dtab-Persistence">🔁 Persistence <span
-                class="tab-count" id="dcnt-Persistence">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Processes')" id="dtab-Processes">⚙ Processes <span
-                class="tab-count" id="dcnt-Processes">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Memory')" id="dtab-Memory">💾 Memory <span class="tab-count"
-                id="dcnt-Memory">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Network')" id="dtab-Network">🌐 Network <span
-                class="tab-count" id="dcnt-Network">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('Hardware')" id="dtab-Hardware">🖥 Hardware <span
-                class="tab-count" id="dcnt-Hardware">0</span></button>
-            <button class="tab-btn" onclick="setDynFilter('System')" id="dtab-System">⚙ System <span class="tab-count"
-                id="dcnt-System">0</span></button>
-          </div>
-          <div class="tbl-wrap" style="flex:1;overflow-y:auto;">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="width:72px;">Time</th>
-                  <th style="width:110px;">Category</th>
-                  <th>Event</th>
-                </tr>
-              </thead>
-              <tbody id="dynBody">
-                <tr>
-                  <td colspan="3" class="empty-state"><span class="empty-icon">⚡</span>No dynamic events yet.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- ══ PAGE: REPORTS ══════════════════════════════════════════ -->
-      <div class="page" id="page-reports" style="gap:1rem; overflow-y:auto;">
-        <div class="page-hdr">📑 Reports &amp; Downloads</div>
-
-        <!-- Download card -->
-        <div class="card">
-          <div class="card-title"><span class="ct-icon">⬇</span> Download Analysis Reports</div>
-          <div id="dlSection">
-            <div class="empty-state"><span class="empty-icon">📑</span>Load an analysis to access reports.</div>
-          </div>
-        </div>
-
-        <!-- Score breakdown -->
-        <div class="card" id="scoreCard" style="display:none;">
-          <div class="card-title"><span class="ct-icon">📊</span> Threat Score Breakdown</div>
-          <div id="scoreBreakdown"></div>
-        </div>
-
-        <!-- History -->
-        <div class="card" style="display:flex;flex-direction:column;flex:1;min-height:0;">
-          <div class="card-title"><span class="ct-icon">🕐</span> Full Analysis History</div>
+        <!-- History table -->
+        <div class="card" style="display:flex;flex-direction:column;min-height:0;">
+          <div class="card-title"><span class="ct-icon">🕐</span> Analysis Queue &amp; History</div>
           <div class="history-wrap">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>SHA-256</th>
-                  <th>Filename</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Risk Score</th>
-                  <th>Actions</th>
+                  <th>SHA-256</th><th>Filename</th><th>Date</th><th>Status</th><th>Risk Score</th><th>Actions</th>
                 </tr>
               </thead>
-              <tbody id="reportHistoryBody">
-                <tr>
-                  <td colspan="6" class="empty-state">Loading…</td>
-                </tr>
+              <tbody id="historyBody">
+                {% if history %}
+                  {% for item in history %}
+                  <tr id="row-{{ item.sha256_hash }}">
+                    <td class="mono" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ item.sha256_hash }}">{{ item.sha256_hash[:16] }}…</td>
+                    <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                      <a href="#" onclick="loadAnalysis('{{ item.sha256_hash }}');return false;" class="section-link" style="font-weight:600;">{{ item.filename }}</a>
+                    </td>
+                    <td style="color:hsl(var(--text-dim));font-size:.7rem;white-space:nowrap;">{{ item.timestamp.strftime('%Y-%m-%d %H:%M') if item.timestamp else '-' }}</td>
+                    <td><span class="badge badge-{{ item.status.lower() }}">{{ item.status }}</span></td>
+                    <td>
+                      {% if item.risk_score is not none %}
+                        {% set s = item.risk_score / 10.0 %}
+                        {% if s >= 7.5 %}<span class="score-pill score-malicious">{{ '%.1f'|format(s) }}</span>
+                        {% elif s >= 5.0 %}<span class="score-pill score-highrisk">{{ '%.1f'|format(s) }}</span>
+                        {% elif s >= 3.0 %}<span class="score-pill score-suspicious">{{ '%.1f'|format(s) }}</span>
+                        {% else %}<span class="score-pill score-clean">{{ '%.1f'|format(s) }}</span>{% endif %}
+                      {% else %}<span style="color:hsl(var(--text-dim));">—</span>{% endif %}
+                    </td>
+                    <td>
+                      <a href="#" onclick="loadAnalysis('{{ item.sha256_hash }}');return false;" class="section-link">Load ↙</a>
+                      &nbsp;
+                      <a href="/report/{{ item.sha256_hash }}" class="section-link" target="_blank">Report ↗</a>
+                      {% if item.status == 'Processing' or item.status == 'Queued' %}
+                        &nbsp;
+                        <a href="#" onclick="terminateAnalysis('{{ item.sha256_hash }}');return false;" class="section-link" style="color:hsl(var(--danger));">Terminate 🛑</a>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr><td colspan="6" class="empty-state"><span class="empty-icon">🧬</span>No samples ingested yet.</td></tr>
+                {% endif %}
               </tbody>
             </table>
           </div>
         </div>
-      </div><!-- /page-reports -->
+      </div>
+    </div><!-- /page-upload -->
 
-    </div><!-- /#main -->
-  </div><!-- /#app -->
+    <!-- ══ PAGE: OVERVIEW ══════════════════════════════════════════ -->
+    <div class="page" id="page-overview">
+      <div class="page-hdr">
+        🏠 Overview
+        <span class="page-hdr-sub" id="ovFilename"></span>
+        <div id="ovPdfLinkContainer" style="margin-left:auto; display:none;">
+          <a href="#" id="ovPdfLink" class="dl-btn dl-btn-pdf" target="_blank">📄 View PDF Report</a>
+        </div>
+      </div>
 
-  <div id="toastArea"></div>
+      <!-- Verdict banner -->
+      <div id="verdictBanner" style="display:none;" class="verdict-banner">
+        <div style="flex-shrink:0;">
+          <div class="verdict-label" id="ovVerdict">—</div>
+          <div class="verdict-score">Threat Verdict</div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;font-size:.7rem;color:hsl(var(--text-muted));margin-bottom:.35rem;">
+            <span>Risk Score</span>
+            <span id="ovScore" style="font-family:var(--font-mono);font-weight:700;">—</span>
+          </div>
+          <div class="gauge-track"><div class="gauge-fill" id="ovGauge" style="width:0%;background:hsl(var(--ok));"></div></div>
+        </div>
+        <div><span class="badge" id="ovConfidence">LOW</span></div>
+      </div>
 
-  <!-- ═══════ JAVASCRIPT ═════════════════════════════════════════════ -->
-  <script>
-    /* ── State ─────────────────────────────────────────────────────── */
-    let currentSha256 = null;
-    let currentEvtSource = null;
-    let dynEvents = [];
-    let dynCounts = { All: 0, Filesystem: 0, Registry: 0, Persistence: 0, Processes: 0, Memory: 0, Network: 0, Hardware: 0, System: 0 };
-    let dynFilter = 'All';
-    let logLines = [];
-    let _strCounts = {};
-    let _strArtifacts = {};
+      <div class="card-grid-2" style="flex:1;min-height:0;">
+        <!-- File summary -->
+        <div class="card" style="overflow-y:auto;">
+          <div class="card-title"><span class="ct-icon">📁</span> File Summary</div>
+          <div id="ovSummary">
+            <div class="empty-state"><span class="empty-icon">📁</span>No analysis loaded.</div>
+          </div>
+        </div>
+        <!-- Security posture -->
+        <div class="card" style="overflow-y:auto;">
+          <div class="card-title"><span class="ct-icon">🛡</span> Security Posture</div>
+          <div class="tbl-wrap">
+            <table class="data-table">
+              <thead><tr><th>Mitigation</th><th>Status</th></tr></thead>
+              <tbody id="ovSecBody"><tr><td colspan="2" class="empty-state">No data.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Key findings -->
+        <div class="card" style="overflow-y:auto;">
+          <div class="card-title"><span class="ct-icon">🔍</span> Key Findings</div>
+          <div id="ovFindings">
+            <div class="empty-state"><span class="empty-icon">🔍</span>Run an analysis first.</div>
+          </div>
+        </div>
+        <!-- Mini log -->
+        <div class="card" style="display:flex;flex-direction:column;">
+          <div class="card-title"><span class="ct-icon">📋</span> Recent Log</div>
+          <div class="log-box mini-log" id="ovLog"></div>
+        </div>
+      </div>
+    </div><!-- /page-overview -->
 
-    /* ── Navigation ─────────────────────────────────────────────────── */
-    function showPage(name) {
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-      const p = document.getElementById('page-' + name);
-      if (p) p.classList.add('active');
-      const b = document.getElementById('nav-' + name);
-      if (b) b.classList.add('active');
-    }
+    <!-- ══ PAGE: LOGS ══════════════════════════════════════════════ -->
+    <div class="page" id="page-logs" style="gap:.75rem;">
+      <div class="page-hdr">
+        📋 Execution Logs
+        <button onclick="clearLogs()" style="margin-left:auto;padding:.25rem .65rem;font-size:.68rem;background:transparent;border:1px solid hsl(var(--border));border-radius:.3rem;color:hsl(var(--text-dim));cursor:pointer;">Clear</button>
+        <button onclick="scrollLogsBottom()" style="padding:.25rem .65rem;font-size:.68rem;background:transparent;border:1px solid hsl(var(--border));border-radius:.3rem;color:hsl(var(--text-dim));cursor:pointer;">↓ Bottom</button>
+      </div>
+      <div class="log-box" id="fullLog" style="flex:1;min-height:0;font-size:.73rem;"></div>
+    </div>
 
-    /* ── Drag & Drop ─────────────────────────────────────────────────── */
-    function ev(e, type) {
-      e.preventDefault();
-      const dz = document.getElementById('dropZone');
-      if (type === 'over') dz.classList.add('dragover');
-      else if (type === 'leave') dz.classList.remove('dragover');
-      else if (type === 'drop') {
-        dz.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        if (files.length) { document.getElementById('fileInput').files = files; handleUpload(); }
-      }
-    }
-    document.getElementById('fileInput').addEventListener('change', () => {
-      if (document.getElementById('fileInput').files.length) handleUpload();
+    <!-- ══ PAGE: PE STRUCTURE ══════════════════════════════════════ -->
+    <div class="page" id="page-pe" style="gap:.75rem;">
+      <div class="page-hdr">📄 PE File Structure</div>
+      <div class="tbl-wrap" style="flex:1;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr><th style="width:130px;">Category</th><th>Property</th><th>Value</th></tr></thead>
+          <tbody id="peBody"><tr><td colspan="3" class="empty-state"><span class="empty-icon">📄</span>No PE data yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: MITIGATIONS ═══════════════════════════════════════ -->
+    <div class="page" id="page-mitigations" style="gap:.75rem;">
+      <div class="page-hdr">🛡 Mitigations &amp; Security Controls</div>
+      <div class="tbl-wrap" style="flex:1;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr><th>Mitigation</th><th style="width:120px;">Status</th><th>Notes</th></tr></thead>
+          <tbody id="mitBody"><tr><td colspan="3" class="empty-state"><span class="empty-icon">🛡</span>No data yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: STRINGS ══════════════════════════════════════════ -->
+    <div class="page" id="page-strings" style="gap:.75rem; overflow-y:auto;">
+      <div class="page-hdr">🔤 Strings &amp; Extracted Artifacts</div>
+      
+      <!-- Unpacked Archive Inventory Card -->
+      <div class="card" id="pkgUnpackerCard" style="display:none; margin-bottom:.5rem;">
+        <div class="card-title"><span class="ct-icon">📦</span> Unpacked Archive Inventory</div>
+        <div class="tbl-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Relative Path</th><th>Size</th><th>Verdict</th><th>SHA-256</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="pkgUnpackerBody">
+              <tr><td colspan="5" class="empty-state">No files extracted.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="flex:1; min-height:300px;" id="stringsContainer">
+        <div class="empty-state"><span class="empty-icon">🔤</span>No string data yet.</div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: YARA ══════════════════════════════════════════════ -->
+    <div class="page" id="page-yara" style="gap:.75rem;">
+      <div class="page-hdr">🐛 YARA Signatures &amp; Detections</div>
+      <div style="flex:1;overflow-y:auto;" id="yaraContainer">
+        <div class="empty-state"><span class="empty-icon">🐛</span>No YARA results yet.</div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: DYNAMIC ══════════════════════════════════════════ -->
+    <div class="page" id="page-dynamic" style="gap:.75rem; overflow-y:auto;">
+      <div class="page-hdr">
+        ⚡ Dynamic Sandbox Telemetry
+        <span id="dynStatus" style="font-size:.68rem;color:hsl(var(--text-dim));font-weight:400;margin-left:.5rem;">● Idle</span>
+      </div>
+      
+      <!-- Premium Structured container -->
+      <div id="premiumDynContainer" style="display:none; flex-direction:column; gap:.75rem; width: 100%;"></div>
+
+      <!-- Legacy fallback view container -->
+      <div id="legacyDynContainer" style="display:flex; flex-direction:column; gap:.75rem; flex:1; min-height:0; width: 100%;">
+        <div class="tab-strip" id="dynTabStrip">
+          <button class="tab-btn active" onclick="setDynFilter('All')" id="dtab-All">All <span class="tab-count" id="dcnt-All">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Filesystem')" id="dtab-Filesystem">📂 Filesystem <span class="tab-count" id="dcnt-Filesystem">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Registry')" id="dtab-Registry">🗝 Registry <span class="tab-count" id="dcnt-Registry">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Persistence')" id="dtab-Persistence">🔁 Persistence <span class="tab-count" id="dcnt-Persistence">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Processes')" id="dtab-Processes">⚙ Processes <span class="tab-count" id="dcnt-Processes">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Memory')" id="dtab-Memory">💾 Memory <span class="tab-count" id="dcnt-Memory">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Network')" id="dtab-Network">🌐 Network <span class="tab-count" id="dcnt-Network">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('Hardware')" id="dtab-Hardware">🖥 Hardware <span class="tab-count" id="dcnt-Hardware">0</span></button>
+          <button class="tab-btn" onclick="setDynFilter('System')" id="dtab-System">⚙ System <span class="tab-count" id="dcnt-System">0</span></button>
+        </div>
+        <div class="tbl-wrap" style="flex:1;overflow-y:auto;">
+          <table class="data-table">
+            <thead><tr><th style="width:72px;">Time</th><th style="width:110px;">Category</th><th>Event</th></tr></thead>
+            <tbody id="dynBody"><tr><td colspan="3" class="empty-state"><span class="empty-icon">⚡</span>No dynamic events yet.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: REPORTS ══════════════════════════════════════════ -->
+    <div class="page" id="page-reports" style="gap:1rem; overflow-y:auto;">
+      <div class="page-hdr">📑 Reports &amp; Downloads</div>
+
+      <!-- Download card -->
+      <div class="card">
+        <div class="card-title"><span class="ct-icon">⬇</span> Download Analysis Reports</div>
+        <div id="dlSection">
+          <div class="empty-state"><span class="empty-icon">📑</span>Load an analysis to access reports.</div>
+        </div>
+      </div>
+
+      <!-- Score breakdown -->
+      <div class="card" id="scoreCard" style="display:none;">
+        <div class="card-title"><span class="ct-icon">📊</span> Threat Score Breakdown</div>
+        <div id="scoreBreakdown"></div>
+      </div>
+
+      <!-- History -->
+      <div class="card" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+        <div class="card-title"><span class="ct-icon">🕐</span> Full Analysis History</div>
+        <div class="history-wrap">
+          <table class="data-table">
+            <thead><tr><th>SHA-256</th><th>Filename</th><th>Date</th><th>Status</th><th>Risk Score</th><th>Actions</th></tr></thead>
+            <tbody id="reportHistoryBody">
+              <tr><td colspan="6" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /page-reports -->
+
+  </div><!-- /#main -->
+</div><!-- /#app -->
+
+<div id="toastArea"></div>
+
+<!-- ═══════ JAVASCRIPT ═════════════════════════════════════════════ -->
+<script>
+/* ── State ─────────────────────────────────────────────────────── */
+let currentSha256    = null;
+let currentEvtSource = null;
+let dynEvents  = [];
+let dynCounts  = {All:0,Filesystem:0,Registry:0,Persistence:0,Processes:0,Memory:0,Network:0,Hardware:0,System:0};
+let dynFilter  = 'All';
+let logLines   = [];
+let _strCounts = {};
+let _strArtifacts = {};
+
+/* ── Navigation ─────────────────────────────────────────────────── */
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const p = document.getElementById('page-' + name);
+  if (p) p.classList.add('active');
+  const b = document.getElementById('nav-' + name);
+  if (b) b.classList.add('active');
+}
+
+/* ── Drag & Drop ─────────────────────────────────────────────────── */
+function ev(e, type) {
+  e.preventDefault();
+  const dz = document.getElementById('dropZone');
+  if (type === 'over')  dz.classList.add('dragover');
+  else if (type === 'leave') dz.classList.remove('dragover');
+  else if (type === 'drop') {
+    dz.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length) { document.getElementById('fileInput').files = files; handleUpload(); }
+  }
+}
+document.getElementById('fileInput').addEventListener('change', () => {
+  if (document.getElementById('fileInput').files.length) handleUpload();
+});
+
+/* ── Upload ─────────────────────────────────────────────────────── */
+function handleUpload() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) return;
+  const type = document.getElementById('analysis_type').value;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('analysis_type', type);
+
+  showStatus('Uploading ' + file.name + '…', 'queued');
+
+  fetch('/upload', { method: 'POST', body: fd })
+    .then(r => { if (!r.ok) return r.json().then(e => { throw e; }); return r.json(); })
+    .then(data => {
+      showStatus('Queued: ' + data.filename, 'processing');
+      toast('Sample queued: ' + data.filename, 'success');
+      document.getElementById('fileInput').value = '';
+      startSSE(data.sha256);
+      fetchHistory();
+    })
+    .catch(err => {
+      const msg = err.error || err.message || 'Upload failed';
+      showStatus(msg, 'failed');
+      toast(msg, 'error');
     });
+}
 
-    /* ── Upload ─────────────────────────────────────────────────────── */
-    function handleUpload() {
-      const file = document.getElementById('fileInput').files[0];
-      if (!file) return;
-      const type = document.getElementById('analysis_type').value;
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('analysis_type', type);
+/* ── SSE ────────────────────────────────────────────────────────── */
+function startSSE(sha256) {
+  if (currentEvtSource) currentEvtSource.close();
+  currentSha256 = sha256.toLowerCase();
 
-      showStatus('Uploading ' + file.name + '…', 'queued');
+  logLines = []; dynEvents = [];
+  Object.keys(dynCounts).forEach(k => dynCounts[k] = 0);
+  _strCounts = {}; _strArtifacts = {};
 
-      fetch('/upload', { method: 'POST', body: fd })
-        .then(r => { if (!r.ok) return r.json().then(e => { throw e; }); return r.json(); })
-        .then(data => {
-          showStatus('Queued: ' + data.filename, 'processing');
-          toast('Sample queued: ' + data.filename, 'success');
-          document.getElementById('fileInput').value = '';
-          startSSE(data.sha256);
-          fetchHistory();
-        })
-        .catch(err => {
-          const msg = err.error || err.message || 'Upload failed';
-          showStatus(msg, 'failed');
-          toast(msg, 'error');
-        });
+  clearLogDOM('fullLog'); clearLogDOM('ovLog');
+  document.getElementById('peBody').innerHTML    = '<tr><td colspan="3" class="empty-state">Waiting for data…</td></tr>';
+  document.getElementById('mitBody').innerHTML   = '<tr><td colspan="3" class="empty-state">Waiting for data…</td></tr>';
+  document.getElementById('dynBody').innerHTML   = '<tr><td colspan="3" class="empty-state">Waiting for events…</td></tr>';
+  document.getElementById('stringsContainer').innerHTML = '<div class="empty-state">Waiting…</div>';
+  document.getElementById('yaraContainer').innerHTML    = '<div class="empty-state">Waiting…</div>';
+  document.getElementById('ovSummary').innerHTML = '<div class="empty-state"><span class="empty-icon">📁</span>Analysis starting…</div>';
+  document.getElementById('ovPdfLinkContainer').style.display = 'none';
+  document.getElementById('verdictBanner').style.display = 'none';
+
+  setStatusBar('Analyzing ' + sha256.substring(0,12) + '…', 'processing');
+  setGlobalStatus('Processing', 'amber');
+  document.getElementById('pkgUnpackerCard').style.display = 'none';
+  document.getElementById('pkgUnpackerBody').innerHTML = '<tr><td colspan="5" class="empty-state">Waiting for data…</td></tr>';
+
+  currentEvtSource = new EventSource('/stream/' + sha256);
+  currentEvtSource.onmessage = e => {
+    try { handleSSEEvent(JSON.parse(e.data)); } catch(ex) {}
+  };
+  currentEvtSource.onerror = () => setGlobalStatus('Ready', 'green');
+}
+
+function handleSSEEvent(evt) {
+  const type = evt.type, data = evt.data || {};
+  if (type === 'log') {
+    appendLog(data.msg || '');
+  } else if (type === 'table_update') {
+    applyTableUpdate(data.module, data.data);
+  } else if (type === 'score') {
+    applyScore(data.target, data.result);
+  } else if (type === 'inventory') {
+    renderInventory(data.inventory);
+  } else if (type === 'status') {
+    setStatusBar('Status: ' + data.status, data.status === 'Processing' ? 'processing' : 'done');
+  } else if (type === 'complete') {
+    const ok = data.status === 'Complete';
+    setStatusBar(ok ? '✓ Analysis complete' : '✗ Analysis failed — check logs', ok ? 'done' : 'failed');
+    setGlobalStatus('Ready', 'green');
+    fetchHistory();
+    if (currentEvtSource) { currentEvtSource.close(); currentEvtSource = null; }
+    toast(ok ? 'Analysis complete!' : 'Analysis failed — check logs.', ok ? 'success' : 'error');
+    if (ok) {
+      document.getElementById('ovPdfLinkContainer').style.display = 'block';
+      document.getElementById('ovPdfLink').href = `/download/report/pdf/${currentSha256}`;
+      loadAnalysis(currentSha256);
+      setTimeout(() => showPage('overview'), 400);
     }
+  }
+}
 
-    /* ── SSE ────────────────────────────────────────────────────────── */
-    function startSSE(sha256) {
-      if (currentEvtSource) currentEvtSource.close();
-      currentSha256 = sha256.toLowerCase();
+/* ── Log helpers ─────────────────────────────────────────────────── */
+function appendLog(msg) {
+  logLines.push(msg);
+  const t = new Date().toLocaleTimeString('en-GB', {hour12:false});
+  const html = colorLog(msg);
+  appendToLogBox('fullLog', `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`);
+  appendToLogBox('ovLog',   `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`);
+}
 
-      logLines = []; dynEvents = [];
-      Object.keys(dynCounts).forEach(k => dynCounts[k] = 0);
-      _strCounts = {}; _strArtifacts = {};
+function colorLog(msg) {
+  const e = esc(msg);
+  if (/\[!!!\]|\[CRITICAL\]|\[FATAL\]/i.test(msg)) return `<span class="lg-crit">${e}</span>`;
+  if (/\[!\]|\[WARNING\]/i.test(msg)) return `<span class="lg-warn">${e}</span>`;
+  if (/\[SYSTEM\]|\[VM\]/i.test(msg))  return `<span class="lg-sys">${e}</span>`;
+  if (/\[\*\]|\[-\]/i.test(msg))  return `<span class="lg-info">${e}</span>`;
+  if (/\[\+\]/i.test(msg))        return `<span class="lg-plus">${e}</span>`;
+  return `<span class="lg-dim">${e}</span>`;
+}
 
-      clearLogDOM('fullLog'); clearLogDOM('ovLog');
-      document.getElementById('peBody').innerHTML = '<tr><td colspan="3" class="empty-state">Waiting for data…</td></tr>';
-      document.getElementById('mitBody').innerHTML = '<tr><td colspan="3" class="empty-state">Waiting for data…</td></tr>';
-      document.getElementById('dynBody').innerHTML = '<tr><td colspan="3" class="empty-state">Waiting for events…</td></tr>';
-      document.getElementById('stringsContainer').innerHTML = '<div class="empty-state">Waiting…</div>';
-      document.getElementById('yaraContainer').innerHTML = '<div class="empty-state">Waiting…</div>';
-      document.getElementById('ovSummary').innerHTML = '<div class="empty-state"><span class="empty-icon">📁</span>Analysis starting…</div>';
-      document.getElementById('ovPdfLinkContainer').style.display = 'none';
-      document.getElementById('verdictBanner').style.display = 'none';
+function appendToLogBox(id, html) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  box.innerHTML += html;
+  box.scrollTop = box.scrollHeight;
+}
+function clearLogDOM(id) { const el = document.getElementById(id); if (el) el.innerHTML = ''; }
+function clearLogs() { clearLogDOM('fullLog'); clearLogDOM('ovLog'); logLines = []; }
+function scrollLogsBottom() { const el = document.getElementById('fullLog'); if (el) el.scrollTop = el.scrollHeight; }
 
-      setStatusBar('Analyzing ' + sha256.substring(0, 12) + '…', 'processing');
-      setGlobalStatus('Processing', 'amber');
-      document.getElementById('pkgUnpackerCard').style.display = 'none';
-      document.getElementById('pkgUnpackerBody').innerHTML = '<tr><td colspan="5" class="empty-state">Waiting for data…</td></tr>';
-
-      currentEvtSource = new EventSource('/stream/' + sha256);
-      currentEvtSource.onmessage = e => {
-        try { handleSSEEvent(JSON.parse(e.data)); } catch (ex) { }
-      };
-      currentEvtSource.onerror = () => setGlobalStatus('Ready', 'green');
+/* ── Table update dispatcher ─────────────────────────────────────── */
+function applyTableUpdate(module, data) {
+  if (!data || typeof data !== 'object') return;
+  if (module === 'Intake')                         renderOverviewSummary(data);
+  if (module.startsWith('Static: PE Headers'))     renderPESection('PE Headers',    data);
+  if (module.startsWith('Static: Sections'))       renderPESection('Sections',      data);
+  if (module.startsWith('Static: Manifest'))       renderPESection('Manifest Data', data);
+  if (module.startsWith('Static: Suspicious'))     renderPESection('Imports',       data);
+  if (module.startsWith('Static: Mitigations'))    renderMitigations(data);
+  if (module.startsWith('Static: Strings A'))      renderStrings(data, null);
+  if (module.startsWith('Static: Extracted'))      renderArtifacts(data);
+  if (module.startsWith('Static: YARA'))           renderYara(data);
+  if (module.startsWith('Dynamic: ') && !module.endsWith('Summary')) {
+    const cat = module.replace('Dynamic: ', '');
+    if (data.Events) {
+      data.Events.split('\n').filter(l => l.trim()).forEach(line => addDynEvent(cat, line));
     }
+  }
+}
 
-    function handleSSEEvent(evt) {
-      const type = evt.type, data = evt.data || {};
-      if (type === 'log') {
-        appendLog(data.msg || '');
-      } else if (type === 'table_update') {
-        applyTableUpdate(data.module, data.data);
-      } else if (type === 'score') {
-        applyScore(data.target, data.result);
-      } else if (type === 'inventory') {
-        renderInventory(data.inventory);
-      } else if (type === 'status') {
-        setStatusBar('Status: ' + data.status, data.status === 'Processing' ? 'processing' : 'done');
-      } else if (type === 'complete') {
-        const ok = data.status === 'Complete';
-        setStatusBar(ok ? '✓ Analysis complete' : '✗ Analysis failed — check logs', ok ? 'done' : 'failed');
-        setGlobalStatus('Ready', 'green');
-        fetchHistory();
-        if (currentEvtSource) { currentEvtSource.close(); currentEvtSource = null; }
-        toast(ok ? 'Analysis complete!' : 'Analysis failed — check logs.', ok ? 'success' : 'error');
-        if (ok) {
-          document.getElementById('ovPdfLinkContainer').style.display = 'block';
-          document.getElementById('ovPdfLink').href = `/download/report/pdf/${currentSha256}`;
-          loadAnalysis(currentSha256);
-          setTimeout(() => showPage('overview'), 400);
-        }
-      }
-    }
-
-    /* ── Log helpers ─────────────────────────────────────────────────── */
-    function appendLog(msg) {
-      logLines.push(msg);
-      const t = new Date().toLocaleTimeString('en-GB', { hour12: false });
-      const html = colorLog(msg);
-      appendToLogBox('fullLog', `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`);
-      appendToLogBox('ovLog', `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`);
-    }
-
-    function colorLog(msg) {
-      const e = esc(msg);
-      if (/\[!!!\]|\[CRITICAL\]|\[FATAL\]/i.test(msg)) return `<span class="lg-crit">${e}</span>`;
-      if (/\[!\]|\[WARNING\]/i.test(msg)) return `<span class="lg-warn">${e}</span>`;
-      if (/\[SYSTEM\]|\[VM\]/i.test(msg)) return `<span class="lg-sys">${e}</span>`;
-      if (/\[\*\]|\[-\]/i.test(msg)) return `<span class="lg-info">${e}</span>`;
-      if (/\[\+\]/i.test(msg)) return `<span class="lg-plus">${e}</span>`;
-      return `<span class="lg-dim">${e}</span>`;
-    }
-
-    function appendToLogBox(id, html) {
-      const box = document.getElementById(id);
-      if (!box) return;
-      box.innerHTML += html;
-      box.scrollTop = box.scrollHeight;
-    }
-    function clearLogDOM(id) { const el = document.getElementById(id); if (el) el.innerHTML = ''; }
-    function clearLogs() { clearLogDOM('fullLog'); clearLogDOM('ovLog'); logLines = []; }
-    function scrollLogsBottom() { const el = document.getElementById('fullLog'); if (el) el.scrollTop = el.scrollHeight; }
-
-    /* ── Table update dispatcher ─────────────────────────────────────── */
-    function applyTableUpdate(module, data) {
-      if (!data || typeof data !== 'object') return;
-      if (module === 'Intake') renderOverviewSummary(data);
-      if (module.startsWith('Static: PE Headers')) renderPESection('PE Headers', data);
-      if (module.startsWith('Static: Sections')) renderPESection('Sections', data);
-      if (module.startsWith('Static: Manifest')) renderPESection('Manifest Data', data);
-      if (module.startsWith('Static: Suspicious')) renderPESection('Imports', data);
-      if (module.startsWith('Static: Mitigations')) renderMitigations(data);
-      if (module.startsWith('Static: Strings A')) renderStrings(data, null);
-      if (module.startsWith('Static: Extracted')) renderArtifacts(data);
-      if (module.startsWith('Static: YARA')) renderYara(data);
-      if (module.startsWith('Dynamic: ') && !module.endsWith('Summary')) {
-        const cat = module.replace('Dynamic: ', '');
-        if (data.Events) {
-          data.Events.split('\n').filter(l => l.trim()).forEach(line => addDynEvent(cat, line));
-        }
-      }
-    }
-
-    /* ── Overview ─────────────────────────────────────────────────────── */
-    function renderOverviewSummary(data) {
-      const keys = [
-        'Analysis ID', 'Original File Name', 'File Name', 'File Size (Bytes)', 'File Size',
-        'Extension', 'Creation Timestamp', 'Submission Timestamp',
-        'Magic Bytes (Hex)', 'Magic Bytes', 'MIME/Format Guess', 'MD5', 'SHA1', 'SHA256'
-      ];
-      let html = '';
-      keys.forEach(k => {
-        const v = data[k];
-        if (v !== undefined && v !== null && v !== '') {
-          html += `<div class="kv-row">
+/* ── Overview ─────────────────────────────────────────────────────── */
+function renderOverviewSummary(data) {
+  const keys = [
+    'Analysis ID','Original File Name','File Name','File Size (Bytes)','File Size',
+    'Extension','Creation Timestamp','Submission Timestamp',
+    'Magic Bytes (Hex)','Magic Bytes','MIME/Format Guess','MD5','SHA1','SHA256'
+  ];
+  let html = '';
+  keys.forEach(k => {
+    const v = data[k];
+    if (v !== undefined && v !== null && v !== '') {
+      html += `<div class="kv-row">
         <div class="kv-key">${esc(k)}</div>
         <div class="kv-val">${esc(String(v))}</div>
       </div>`;
-        }
-      });
-      const el = document.getElementById('ovSummary');
-      if (el && html) el.innerHTML = html;
-      const fn = data['Original File Name'] || data['File Name'] || data['Filename'] || '';
-      if (fn) document.getElementById('ovFilename').textContent = '— ' + fn;
     }
+  });
+  const el = document.getElementById('ovSummary');
+  if (el && html) el.innerHTML = html;
+  const fn = data['Original File Name'] || data['File Name'] || data['Filename'] || '';
+  if (fn) document.getElementById('ovFilename').textContent = '— ' + fn;
+}
 
-    function applyScore(target, result) {
-      if (!result) return;
-      const verdict = result.verdict || 'CLEAN';
-      const score = parseFloat(result.total_score) || 0;
-      const conf = result.confidence || 'LOW';
+function applyScore(target, result) {
+  if (!result) return;
+  const verdict = result.verdict || 'CLEAN';
+  const score   = parseFloat(result.total_score) || 0;
+  const conf    = result.confidence || 'LOW';
 
-      const banner = document.getElementById('verdictBanner');
-      const vClass = verdict.toLowerCase().replace(/\s+/g, '');
-      banner.className = 'verdict-banner verdict-' + vClass;
-      banner.style.display = 'flex';
+  const banner = document.getElementById('verdictBanner');
+  const vClass = verdict.toLowerCase().replace(/\s+/g,'');
+  banner.className = 'verdict-banner verdict-' + vClass;
+  banner.style.display = 'flex';
 
-      const vLabel = document.getElementById('ovVerdict');
-      vLabel.textContent = verdict;
-      vLabel.style.color = verdictColor(verdict);
+  const vLabel = document.getElementById('ovVerdict');
+  vLabel.textContent = verdict;
+  vLabel.style.color = verdictColor(verdict);
 
-      document.getElementById('ovScore').textContent = score.toFixed(1) + ' / 10.0';
-      document.getElementById('ovGauge').style.width = (score * 10) + '%';
-      document.getElementById('ovGauge').style.background = verdictColor(verdict);
-      document.getElementById('ovConfidence').textContent = conf + ' confidence';
-      document.getElementById('ovConfidence').className = 'badge badge-' + (verdict === 'CLEAN' ? 'complete' : verdict === 'MALICIOUS' ? 'failed' : 'processing');
+  document.getElementById('ovScore').textContent = score.toFixed(1) + ' / 10.0';
+  document.getElementById('ovGauge').style.width  = (score * 10) + '%';
+  document.getElementById('ovGauge').style.background = verdictColor(verdict);
+  document.getElementById('ovConfidence').textContent = conf + ' confidence';
+  document.getElementById('ovConfidence').className   = 'badge badge-' + (verdict === 'CLEAN' ? 'complete' : verdict === 'MALICIOUS' ? 'failed' : 'processing');
 
-      const findings = (result.categories || []).flatMap(c => c.findings || []).slice(0, 12);
-      const fin = document.getElementById('ovFindings');
-      if (findings.length) {
-        fin.innerHTML = findings.map(f => {
-          const col = /inject|ransom|hollow|escalat|shadow|terminate|uac|rwe/i.test(f) ? 'hsl(var(--danger))' :
-            /network|http|dns|yara|persist|service|sched/i.test(f) ? 'hsl(var(--warn))' : 'hsl(var(--text-muted))';
-          return `<div style="display:flex;gap:.5rem;padding:.32rem 0;border-bottom:1px solid hsl(var(--border)/.5);font-size:.74rem;">
+  const findings = (result.categories || []).flatMap(c => c.findings || []).slice(0, 12);
+  const fin = document.getElementById('ovFindings');
+  if (findings.length) {
+    fin.innerHTML = findings.map(f => {
+      const col = /inject|ransom|hollow|escalat|shadow|terminate|uac|rwe/i.test(f) ? 'hsl(var(--danger))' :
+                  /network|http|dns|yara|persist|service|sched/i.test(f) ? 'hsl(var(--warn))' : 'hsl(var(--text-muted))';
+      return `<div style="display:flex;gap:.5rem;padding:.32rem 0;border-bottom:1px solid hsl(var(--border)/.5);font-size:.74rem;">
         <span style="color:${col};flex-shrink:0;margin-top:.05rem;">▸</span>
         <span style="color:${col};">${esc(f)}</span>
       </div>`;
-        }).join('');
-      }
+    }).join('');
+  }
 
-      renderReportsCard(currentSha256, result);
-      renderScoreCard(result);
+  renderReportsCard(currentSha256, result);
+  renderScoreCard(result);
 
-      const mitCat = (result.categories || []).find(c => c.name === 'Mitigations');
-      if (mitCat) {
-        const body = document.getElementById('ovSecBody');
-        if (body) body.innerHTML = mitCat.findings.map(f => {
-          const on = !/disabled/i.test(f);
-          return `<tr>
+  const mitCat = (result.categories || []).find(c => c.name === 'Mitigations');
+  if (mitCat) {
+    const body = document.getElementById('ovSecBody');
+    if (body) body.innerHTML = mitCat.findings.map(f => {
+      const on = !/disabled/i.test(f);
+      return `<tr>
         <td style="font-size:.74rem;">${esc(f.split(':')[0])}</td>
         <td><span class="badge ${on ? 'badge-enabled' : 'badge-disabled'}">${on ? 'Enabled' : 'Disabled'}</span></td>
       </tr>`;
-        }).join('') || '<tr><td colspan="2" class="empty-state">No mitigation data.</td></tr>';
-      }
-    }
+    }).join('') || '<tr><td colspan="2" class="empty-state">No mitigation data.</td></tr>';
+  }
+}
 
-    /* ── PE page ─────────────────────────────────────────────────────── */
-    function renderPESection(category, data) {
-      const body = document.getElementById('peBody');
-      if (!body) return;
-      if (body.querySelector('.empty-state')) body.innerHTML = '';
-      Object.entries(data).forEach(([k, v]) => {
-        const key = category + '||' + k;
-        const existing = body.querySelector(`[data-key="${CSS.escape(key)}"]`);
-        if (existing) existing.remove();
-        const tr = document.createElement('tr');
-        tr.setAttribute('data-key', key);
-        const vStr = String(v);
-        const isSusp = /\[PACKED|\[SUSPICIOUS|RWE/i.test(vStr);
-        tr.innerHTML = `
+/* ── PE page ─────────────────────────────────────────────────────── */
+function renderPESection(category, data) {
+  const body = document.getElementById('peBody');
+  if (!body) return;
+  if (body.querySelector('.empty-state')) body.innerHTML = '';
+  Object.entries(data).forEach(([k, v]) => {
+    const key = category + '||' + k;
+    const existing = body.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (existing) existing.remove();
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-key', key);
+    const vStr = String(v);
+    const isSusp = /\[PACKED|\[SUSPICIOUS|RWE/i.test(vStr);
+    tr.innerHTML = `
       <td class="pe-cat">${esc(category)}</td>
       <td style="font-weight:600;font-size:.74rem;">${esc(k)}</td>
       <td class="mono" style="${isSusp ? 'color:hsl(var(--danger));font-weight:600;' : ''}">${esc(vStr)}</td>`;
-        body.appendChild(tr);
-      });
-    }
+    body.appendChild(tr);
+  });
+}
 
-    /* ── Mitigations ─────────────────────────────────────────────────── */
-    function renderMitigations(data) {
-      const body = document.getElementById('mitBody');
-      if (!body) return;
-      body.innerHTML = '';
-      const secBody = document.getElementById('ovSecBody');
-      if (secBody) secBody.innerHTML = '';
+/* ── Mitigations ─────────────────────────────────────────────────── */
+function renderMitigations(data) {
+  const body = document.getElementById('mitBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const secBody = document.getElementById('ovSecBody');
+  if (secBody) secBody.innerHTML = '';
 
-      const notes = {
-        'DEP / NX Bit': 'Marks data pages non-executable.',
-        'ASLR': 'Randomises load addresses to hinder ROP chains.',
-        'CFG (Control Flow Guard)': 'Compile-time + runtime control-flow integrity.',
-        'RFG (Return Flow Guard)': 'Guards return addresses against ROP corruption.',
-        'SafeSEH': 'Validates SEH handlers against a compile-time list.',
-        'Stack Canaries (/GS)': 'Compiler stack cookie — detects stack-buffer overflows.',
-        'Hardware Protection (CET/Shadow Stack)': 'Intel CET hardware-enforced return-address integrity.',
-        'Force Integrity': 'Requires valid Authenticode signature before load.',
-        'Isolation / AppContainer': 'Runs with restricted AppContainer privilege.'
-      };
+  const notes = {
+    'DEP / NX Bit':'Marks data pages non-executable.',
+    'ASLR':'Randomises load addresses to hinder ROP chains.',
+    'CFG (Control Flow Guard)':'Compile-time + runtime control-flow integrity.',
+    'RFG (Return Flow Guard)':'Guards return addresses against ROP corruption.',
+    'SafeSEH':'Validates SEH handlers against a compile-time list.',
+    'Stack Canaries (/GS)':'Compiler stack cookie — detects stack-buffer overflows.',
+    'Hardware Protection (CET/Shadow Stack)':'Intel CET hardware-enforced return-address integrity.',
+    'Force Integrity':'Requires valid Authenticode signature before load.',
+    'Isolation / AppContainer':'Runs with restricted AppContainer privilege.'
+  };
 
-      Object.entries(data).forEach(([k, v]) => {
-        const vStr = String(v);
-        const isEnabled = /enabled/i.test(vStr) && !/disabled/i.test(vStr);
-        const isDisabled = /disabled/i.test(vStr);
-        const badge = isEnabled ? '<span class="badge badge-enabled">Enabled</span>'
-          : isDisabled ? '<span class="badge badge-disabled">Disabled</span>'
-            : `<span class="badge badge-na">${esc(vStr)}</span>`;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
+  Object.entries(data).forEach(([k, v]) => {
+    const vStr = String(v);
+    const isEnabled  = /enabled/i.test(vStr) && !/disabled/i.test(vStr);
+    const isDisabled = /disabled/i.test(vStr);
+    const badge = isEnabled  ? '<span class="badge badge-enabled">Enabled</span>'
+                : isDisabled ? '<span class="badge badge-disabled">Disabled</span>'
+                : `<span class="badge badge-na">${esc(vStr)}</span>`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
       <td style="font-weight:600;font-size:.74rem;">${esc(k)}</td>
       <td>${badge}</td>
       <td class="mono" style="color:hsl(var(--text-dim));font-size:.68rem;">${esc(notes[k] || vStr)}</td>`;
-        body.appendChild(tr);
-        if (secBody) {
-          const tr2 = document.createElement('tr');
-          tr2.innerHTML = `<td style="font-size:.74rem;">${esc(k)}</td><td>${badge}</td>`;
-          secBody.appendChild(tr2);
-        }
-      });
+    body.appendChild(tr);
+    if (secBody) {
+      const tr2 = document.createElement('tr');
+      tr2.innerHTML = `<td style="font-size:.74rem;">${esc(k)}</td><td>${badge}</td>`;
+      secBody.appendChild(tr2);
     }
+  });
+}
 
-    /* ── Strings ─────────────────────────────────────────────────────── */
-    function renderStrings(counts, artifacts) {
-      if (counts) _strCounts = counts;
-      if (artifacts) _strArtifacts = artifacts;
-      _renderStringsPage();
-    }
-    function renderArtifacts(data) { _strArtifacts = data; _renderStringsPage(); }
+/* ── Strings ─────────────────────────────────────────────────────── */
+function renderStrings(counts, artifacts) {
+  if (counts)    _strCounts    = counts;
+  if (artifacts) _strArtifacts = artifacts;
+  _renderStringsPage();
+}
+function renderArtifacts(data) { _strArtifacts = data; _renderStringsPage(); }
 
-    function _renderStringsPage() {
-      const cats = ['IPv4', 'IPv6', 'URL', 'Registry', 'Email', 'Password-Like'];
-      const icons = { IPv4: '🌐', IPv6: '🔗', URL: '🔗', Registry: '🗝', Email: '✉', 'Password-Like': '🔑' };
-      const cont = document.getElementById('stringsContainer');
-      let html = '';
-      cats.forEach(cat => {
-        const cnt = _strCounts[cat] || 0;
-        const vals = _strArtifacts[cat] || [];
-        const arr = Array.isArray(vals) ? vals : (vals ? [vals] : []);
-        const hasData = arr.length > 0;
-        html += `<div class="artifact-section">
+function _renderStringsPage() {
+  const cats = ['IPv4','IPv6','URL','Registry','Email','Password-Like'];
+  const icons = {IPv4:'🌐',IPv6:'🔗',URL:'🔗',Registry:'🗝',Email:'✉','Password-Like':'🔑'};
+  const cont = document.getElementById('stringsContainer');
+  let html = '';
+  cats.forEach(cat => {
+    const cnt  = _strCounts[cat] || 0;
+    const vals = _strArtifacts[cat] || [];
+    const arr  = Array.isArray(vals) ? vals : (vals ? [vals] : []);
+    const hasData = arr.length > 0;
+    html += `<div class="artifact-section">
       <div class="artifact-header${hasData ? ' open' : ''}" onclick="toggleArtifact(this)">
-        <span style="font-size:.9rem;">${icons[cat] || '•'}</span>
+        <span style="font-size:.9rem;">${icons[cat]||'•'}</span>
         <span class="artifact-label">${esc(cat)}</span>
         <span class="artifact-cnt">${cnt} found</span>
         <span class="artifact-toggle">▾</span>
@@ -1905,52 +1020,52 @@
         ${arr.length ? arr.map(v => `<div style="padding:.08rem 0;border-bottom:1px solid hsl(var(--border)/.3);">• ${esc(v)}</div>`).join('') : '<span style="color:hsl(var(--text-dim));">(none found)</span>'}
       </div>
     </div>`;
-      });
-      cont.innerHTML = html || '<div class="empty-state">No string data.</div>';
-    }
+  });
+  cont.innerHTML = html || '<div class="empty-state">No string data.</div>';
+}
 
-    function renderInventory(inv) {
-      const card = document.getElementById('pkgUnpackerCard');
-      const body = document.getElementById('pkgUnpackerBody');
-      if (!card || !body) return;
-
-      if (!inv || !inv.length) {
-        card.style.display = 'none';
-        body.innerHTML = '<tr><td colspan="5" class="empty-state">No files extracted.</td></tr>';
-        return;
-      }
-
-      card.style.display = 'block';
-      body.innerHTML = inv.map(item => {
-        const isFlagged = item.Is_Flagged;
-        const badge = isFlagged ? '<span class="badge badge-failed">Flagged</span>' : '<span class="badge badge-complete">Clean</span>';
-        const size = item.Size_Bytes ? (item.Size_Bytes / 1024).toFixed(1) + ' KB' : '0 KB';
-
-        // Relative path needs to be URI encoded for nested folders
-        const downloadUrl = `/download/extracted/${currentSha256}/${encodeURIComponent(item.Relative_Path)}`;
-
-        return `<tr>
+function renderInventory(inv) {
+  const card = document.getElementById('pkgUnpackerCard');
+  const body = document.getElementById('pkgUnpackerBody');
+  if (!card || !body) return;
+  
+  if (!inv || !inv.length) {
+    card.style.display = 'none';
+    body.innerHTML = '<tr><td colspan="5" class="empty-state">No files extracted.</td></tr>';
+    return;
+  }
+  
+  card.style.display = 'block';
+  body.innerHTML = inv.map(item => {
+    const isFlagged = item.Is_Flagged;
+    const badge = isFlagged ? '<span class="badge badge-failed">Flagged</span>' : '<span class="badge badge-complete">Clean</span>';
+    const size = item.Size_Bytes ? (item.Size_Bytes / 1024).toFixed(1) + ' KB' : '0 KB';
+    
+    // Relative path needs to be URI encoded for nested folders
+    const downloadUrl = `/download/extracted/${currentSha256}/${encodeURIComponent(item.Relative_Path)}`;
+    
+    return `<tr>
       <td class="mono" style="font-weight:600;font-size:.74rem;">${esc(item.Relative_Path)}</td>
       <td style="font-size:.72rem;color:hsl(var(--text-muted));">${size}</td>
       <td>${badge}</td>
-      <td class="mono" style="font-size:.68rem;color:hsl(var(--text-dim));">${esc(item.SHA256.substring(0, 16))}…</td>
+      <td class="mono" style="font-size:.68rem;color:hsl(var(--text-dim));">${esc(item.SHA256.substring(0,16))}…</td>
       <td><a href="${downloadUrl}" class="section-link" download>Download ⬇</a></td>
     </tr>`;
-      }).join('');
-    }
+  }).join('');
+}
 
-    function toggleArtifact(header) {
-      header.classList.toggle('open');
-      header.nextElementSibling.classList.toggle('open');
-    }
+function toggleArtifact(header) {
+  header.classList.toggle('open');
+  header.nextElementSibling.classList.toggle('open');
+}
 
-    /* ── YARA ───────────────────────────────────────────────────────── */
-    function renderYara(data) {
-      const hits = parseInt(data.Hits || data.hits || 0);
-      const rules = data['Matched Rules'] || data.matched_rules || 'Clean';
-      const cont = document.getElementById('yaraContainer');
-      const color = hits > 0 ? 'hsl(var(--danger))' : 'hsl(var(--ok))';
-      let html = `<div class="card" style="margin-bottom:.75rem;">
+/* ── YARA ───────────────────────────────────────────────────────── */
+function renderYara(data) {
+  const hits  = parseInt(data.Hits || data.hits || 0);
+  const rules = data['Matched Rules'] || data.matched_rules || 'Clean';
+  const cont  = document.getElementById('yaraContainer');
+  const color = hits > 0 ? 'hsl(var(--danger))' : 'hsl(var(--ok))';
+  let html = `<div class="card" style="margin-bottom:.75rem;">
     <div style="display:flex;align-items:center;gap:1rem;margin-bottom:${hits > 0 ? '.85rem' : '0'};">
       <div style="font-size:2.5rem;font-weight:800;color:${color};font-family:var(--font-mono);line-height:1;">${hits}</div>
       <div>
@@ -1958,99 +1073,99 @@
         <div style="font-size:.72rem;color:hsl(var(--text-dim));margin-top:.15rem;">${hits > 0 ? hits + ' rule(s) matched against the sample' : 'Sample appears clean against loaded ruleset'}</div>
       </div>
     </div>`;
-      if (hits > 0 && rules && rules !== 'Clean') {
-        html += `<div style="border-top:1px solid hsl(var(--border));padding-top:.75rem;">
+  if (hits > 0 && rules && rules !== 'Clean') {
+    html += `<div style="border-top:1px solid hsl(var(--border));padding-top:.75rem;">
       <div style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));letter-spacing:.08em;text-transform:uppercase;margin-bottom:.5rem;">Matched Rules</div>
       <div>${rules.split(',').map(r => r.trim() ? `<span class="yara-rule">${esc(r.trim())}</span>` : '').join('')}</div>
     </div>`;
-      }
-      html += `</div>`;
-      cont.innerHTML = html;
-    }
+  }
+  html += `</div>`;
+  cont.innerHTML = html;
+}
 
-    /* ── Dynamic telemetry ───────────────────────────────────────────── */
-    const dynColors = {
-      Filesystem: '#4A90D9', Registry: '#E8A838', Persistence: '#E05C5C',
-      Processes: '#5CB85C', Memory: '#9B59B6', Network: '#1ABC9C', Hardware: '#95A5A6', System: '#7F8C8D'
-    };
+/* ── Dynamic telemetry ───────────────────────────────────────────── */
+const dynColors = {
+  Filesystem:'#4A90D9',Registry:'#E8A838',Persistence:'#E05C5C',
+  Processes:'#5CB85C',Memory:'#9B59B6',Network:'#1ABC9C',Hardware:'#95A5A6',System:'#7F8C8D'
+};
 
-    function addDynEvent(category, detail) {
-      if (!detail || !detail.trim()) return;
-      const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
-      dynEvents.push({ time, category, detail });
-      dynCounts[category] = (dynCounts[category] || 0) + 1;
-      dynCounts.All = (dynCounts.All || 0) + 1;
-      updateDynCounts();
+function addDynEvent(category, detail) {
+  if (!detail || !detail.trim()) return;
+  const time = new Date().toLocaleTimeString('en-GB', {hour12:false});
+  dynEvents.push({time, category, detail});
+  dynCounts[category] = (dynCounts[category] || 0) + 1;
+  dynCounts.All = (dynCounts.All || 0) + 1;
+  updateDynCounts();
 
-      const body = document.getElementById('dynBody');
-      if (!body) return;
-      if (body.querySelector('.empty-state')) body.innerHTML = '';
-      if (dynFilter !== 'All' && dynFilter !== category) return;
-      appendDynRow(body, time, category, detail);
-    }
+  const body = document.getElementById('dynBody');
+  if (!body) return;
+  if (body.querySelector('.empty-state')) body.innerHTML = '';
+  if (dynFilter !== 'All' && dynFilter !== category) return;
+  appendDynRow(body, time, category, detail);
+}
 
-    function appendDynRow(body, time, category, detail) {
-      const col = dynColors[category] || '#94a3b8';
-      const tr = document.createElement('tr');
-      tr.setAttribute('data-cat', category);
-      tr.innerHTML = `
+function appendDynRow(body, time, category, detail) {
+  const col = dynColors[category] || '#94a3b8';
+  const tr  = document.createElement('tr');
+  tr.setAttribute('data-cat', category);
+  tr.innerHTML = `
     <td class="mono" style="color:hsl(var(--text-dim));white-space:nowrap;font-size:.68rem;">${esc(time)}</td>
     <td><span style="color:${col};font-size:.7rem;font-weight:700;">${esc(category)}</span></td>
     <td class="mono" style="color:hsl(var(--text-primary));font-size:.7rem;">${esc(detail)}</td>`;
-      body.appendChild(tr);
-    }
+  body.appendChild(tr);
+}
 
-    function setDynFilter(cat) {
-      dynFilter = cat;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      const btn = document.getElementById('dtab-' + cat);
-      if (btn) btn.classList.add('active');
+function setDynFilter(cat) {
+  dynFilter = cat;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('dtab-' + cat);
+  if (btn) btn.classList.add('active');
 
-      const body = document.getElementById('dynBody');
-      body.innerHTML = '';
-      const filtered = cat === 'All' ? dynEvents : dynEvents.filter(e => e.category === cat);
-      if (!filtered.length) {
-        body.innerHTML = '<tr><td colspan="3" class="empty-state">No events for this category.</td></tr>';
-        return;
-      }
-      filtered.forEach(e => appendDynRow(body, e.time, e.category, e.detail));
-    }
+  const body = document.getElementById('dynBody');
+  body.innerHTML = '';
+  const filtered = cat === 'All' ? dynEvents : dynEvents.filter(e => e.category === cat);
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="3" class="empty-state">No events for this category.</td></tr>';
+    return;
+  }
+  filtered.forEach(e => appendDynRow(body, e.time, e.category, e.detail));
+}
 
-    function updateDynCounts() {
-      Object.keys(dynCounts).forEach(k => {
-        const el = document.getElementById('dcnt-' + k);
-        if (el) el.textContent = dynCounts[k] || 0;
-      });
-    }
+function updateDynCounts() {
+  Object.keys(dynCounts).forEach(k => {
+    const el = document.getElementById('dcnt-' + k);
+    if (el) el.textContent = dynCounts[k] || 0;
+  });
+}
 
-    /* ── Reports card ────────────────────────────────────────────────── */
-    function renderReportsCard(sha256, scoreResult) {
-      if (!sha256) return;
-      const sec = document.getElementById('dlSection');
-      sec.innerHTML = `<div style="color:hsl(var(--text-dim));font-size:.76rem;">Checking available files…</div>`;
+/* ── Reports card ────────────────────────────────────────────────── */
+function renderReportsCard(sha256, scoreResult) {
+  if (!sha256) return;
+  const sec = document.getElementById('dlSection');
+  sec.innerHTML = `<div style="color:hsl(var(--text-dim));font-size:.76rem;">Checking available files…</div>`;
 
-      fetch('/api/artifacts/' + sha256)
-        .then(r => r.json())
-        .then(avail => {
-          let btns = '';
-          btns += avail.json
-            ? `<a href="/download/report/json/${sha256}" class="dl-btn dl-btn-json" download>⬇ JSON Report</a>`
-            : `<span class="dl-btn" style="border-color:hsl(var(--border));color:hsl(var(--text-dim));cursor:default;opacity:.45;">⬇ JSON (N/A)</span>`;
-          btns += avail.pdf
-            ? `<a href="/download/report/pdf/${sha256}" class="dl-btn dl-btn-pdf" download>⬇ PDF Report</a>`
-            : `<span class="dl-btn" style="border-color:hsl(var(--border));color:hsl(var(--text-dim));cursor:default;opacity:.45;">⬇ PDF (N/A)</span>`;
-          btns += avail.pcap
-            ? `<a href="/download/pcap/${sha256}" class="dl-btn dl-btn-pcap" download>⬇ PCAP Traffic</a>`
-            : `<span class="dl-btn" style="border-color:hsl(var(--border));color:hsl(var(--text-dim));cursor:default;opacity:.45;" title="Network capture not available">⬇ PCAP (N/A)</span>`;
-          btns += `<a href="/report/${sha256}" class="dl-btn dl-btn-view" target="_blank">↗ Full Report View</a>`;
+  fetch('/api/artifacts/' + sha256)
+    .then(r => r.json())
+    .then(avail => {
+      let btns = '';
+      btns += avail.json
+        ? `<a href="/download/report/json/${sha256}" class="dl-btn dl-btn-json" download>⬇ JSON Report</a>`
+        : `<span class="dl-btn" style="border-color:hsl(var(--border));color:hsl(var(--text-dim));cursor:default;opacity:.45;">⬇ JSON (N/A)</span>`;
+      btns += avail.pdf
+        ? `<a href="/download/report/pdf/${sha256}" class="dl-btn dl-btn-pdf" download>⬇ PDF Report</a>`
+        : `<span class="dl-btn" style="border-color:hsl(var(--border));color:hsl(var(--text-dim));cursor:default;opacity:.45;">⬇ PDF (N/A)</span>`;
+      btns += avail.pcap
+        ? `<a href="/download/pcap/${sha256}" class="dl-btn dl-btn-pcap" download>⬇ PCAP Traffic</a>`
+        : `<span class="dl-btn" style="border-color:hsl(var(--border));color:hsl(var(--text-dim));cursor:default;opacity:.45;" title="Network capture not available">⬇ PCAP (N/A)</span>`;
+      btns += `<a href="/report/${sha256}" class="dl-btn dl-btn-view" target="_blank">↗ Full Report View</a>`;
 
-          sec.innerHTML = `
+      sec.innerHTML = `
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.85rem;">${btns}</div>
         <div style="font-family:var(--font-mono);font-size:.65rem;color:hsl(var(--text-dim));word-break:break-all;padding:.5rem .75rem;background:hsl(var(--bg-input));border-radius:.35rem;">SHA-256: ${sha256}</div>
       `;
-        })
-        .catch(() => {
-          sec.innerHTML = `
+    })
+    .catch(() => {
+      sec.innerHTML = `
         <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:.85rem;">
           <a href="/download/report/json/${sha256}" class="dl-btn dl-btn-json" download>⬇ JSON Report</a>
           <a href="/download/report/pdf/${sha256}" class="dl-btn dl-btn-pdf" download>⬇ PDF Report</a>
@@ -2059,295 +1174,271 @@
         </div>
         <div style="font-family:var(--font-mono);font-size:.65rem;color:hsl(var(--text-dim));word-break:break-all;">${sha256}</div>
       `;
-        });
-    }
+    });
+}
 
-    function renderScoreCard(result) {
-      const card = document.getElementById('scoreCard');
-      const cont = document.getElementById('scoreBreakdown');
-      if (!result || !result.categories || !result.categories.length) return;
-      card.style.display = 'block';
-      let html = '';
-      result.categories.forEach(cat => {
-        const pct = cat.max_score > 0 ? (cat.score / cat.max_score * 100) : 0;
-        const norm = cat.normalised || 0;
-        const barCol = norm >= 7.5 ? 'hsl(var(--danger))' : norm >= 5 ? '#ff9500' : norm >= 3 ? 'hsl(var(--warn))' : 'hsl(var(--ok))';
-        html += `<div class="score-bar-row">
+function renderScoreCard(result) {
+  const card = document.getElementById('scoreCard');
+  const cont = document.getElementById('scoreBreakdown');
+  if (!result || !result.categories || !result.categories.length) return;
+  card.style.display = 'block';
+  let html = '';
+  result.categories.forEach(cat => {
+    const pct  = cat.max_score > 0 ? (cat.score / cat.max_score * 100) : 0;
+    const norm = cat.normalised || 0;
+    const barCol = norm >= 7.5 ? 'hsl(var(--danger))' : norm >= 5 ? '#ff9500' : norm >= 3 ? 'hsl(var(--warn))' : 'hsl(var(--ok))';
+    html += `<div class="score-bar-row">
       <div class="score-bar-label">
         <span class="score-bar-name">${esc(cat.name)}</span>
         <span class="score-bar-num">${cat.score.toFixed(1)} / ${cat.max_score.toFixed(0)}</span>
       </div>
       <div class="gauge-track"><div class="gauge-fill" style="width:${pct}%;background:${barCol};"></div></div>
-      ${cat.findings && cat.findings.length ? `<div style="margin-top:.3rem;font-size:.67rem;color:hsl(var(--text-dim));">${cat.findings.slice(0, 3).map(f => '• ' + esc(f)).join('  ')}</div>` : ''}
+      ${cat.findings && cat.findings.length ? `<div style="margin-top:.3rem;font-size:.67rem;color:hsl(var(--text-dim));">${cat.findings.slice(0,3).map(f => '• '+esc(f)).join('  ')}</div>` : ''}
     </div>`;
+  });
+  cont.innerHTML = html;
+}
+
+/* ── Load existing analysis from history ────────────────────────── */
+function loadAnalysis(sha256) {
+  currentSha256 = sha256.toLowerCase();
+  showPage('overview');
+
+  // Clear previous state
+  logLines = []; dynEvents = [];
+  Object.keys(dynCounts).forEach(k => dynCounts[k] = 0);
+  _strCounts = {}; _strArtifacts = {};
+  clearLogDOM('fullLog'); clearLogDOM('ovLog');
+  document.getElementById('peBody').innerHTML    = '<tr><td colspan="3" class="empty-state">Loading…</td></tr>';
+  document.getElementById('mitBody').innerHTML   = '<tr><td colspan="3" class="empty-state">Loading…</td></tr>';
+  document.getElementById('dynBody').innerHTML   = '<tr><td colspan="3" class="empty-state">Loading…</td></tr>';
+  document.getElementById('stringsContainer').innerHTML = '<div class="empty-state">Loading…</div>';
+  document.getElementById('yaraContainer').innerHTML    = '<div class="empty-state">Loading…</div>';
+  document.getElementById('ovSummary').innerHTML        = '<div class="empty-state">Loading…</div>';
+  document.getElementById('verdictBanner').style.display = 'none';
+  document.getElementById('ovFilename').textContent = '';
+  document.getElementById('pkgUnpackerCard').style.display = 'none';
+  document.getElementById('pkgUnpackerBody').innerHTML = '<tr><td colspan="5" class="empty-state">Loading…</td></tr>';
+
+  fetch('/api/results/' + sha256)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(data => {
+      if (data.error) { toast('No analysis data found for this sample.', 'error'); return; }
+
+      // Logs
+      logLines = data.logs || [];
+      logLines.forEach(msg => {
+        const html = colorLog(msg);
+        appendToLogBox('fullLog', html + '\n');
+        appendToLogBox('ovLog',   html + '\n');
       });
-      cont.innerHTML = html;
-    }
 
-    /* ── Load existing analysis from history ────────────────────────── */
-    function loadAnalysis(sha256) {
-      currentSha256 = sha256.toLowerCase();
-      showPage('overview');
+      // Results store → all tabs
+      const rs = data.results_store || {};
+      Object.entries(rs).forEach(([module, d]) => applyTableUpdate(module, d));
 
-      // Clear previous state
-      logLines = []; dynEvents = [];
-      Object.keys(dynCounts).forEach(k => dynCounts[k] = 0);
-      _strCounts = {}; _strArtifacts = {};
-      clearLogDOM('fullLog'); clearLogDOM('ovLog');
-      document.getElementById('peBody').innerHTML = '<tr><td colspan="3" class="empty-state">Loading…</td></tr>';
-      document.getElementById('mitBody').innerHTML = '<tr><td colspan="3" class="empty-state">Loading…</td></tr>';
-      document.getElementById('dynBody').innerHTML = '<tr><td colspan="3" class="empty-state">Loading…</td></tr>';
-      document.getElementById('stringsContainer').innerHTML = '<div class="empty-state">Loading…</div>';
-      document.getElementById('yaraContainer').innerHTML = '<div class="empty-state">Loading…</div>';
-      document.getElementById('ovSummary').innerHTML = '<div class="empty-state">Loading…</div>';
-      document.getElementById('verdictBanner').style.display = 'none';
-      document.getElementById('ovFilename').textContent = '';
-      document.getElementById('pkgUnpackerCard').style.display = 'none';
-      document.getElementById('pkgUnpackerBody').innerHTML = '<tr><td colspan="5" class="empty-state">Loading…</td></tr>';
+      // Scores
+      const sr = data.scoring_results || {};
+      Object.entries(sr).forEach(([target, result]) => applyScore(target, result));
 
-      fetch('/api/results/' + sha256)
-        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(data => {
-          if (data.error) { toast('No analysis data found for this sample.', 'error'); return; }
+      // Status bar
+      const fn = data.filename || '';
+      if (fn) document.getElementById('ovFilename').textContent = '— ' + fn;
+      if (data.status) setStatusBar('Status: ' + data.status,
+        data.status === 'Complete' ? 'done' : data.status === 'Failed' ? 'failed' : 'processing');
 
-          // Logs
-          logLines = data.logs || [];
-          logLines.forEach(msg => {
-            const html = colorLog(msg);
-            appendToLogBox('fullLog', html + '\n');
-            appendToLogBox('ovLog', html + '\n');
-          });
+      // Reports card
+      renderReportsCard(sha256, Object.values(sr)[0]);
 
-          // Results store → all tabs
-          const rs = data.results_store || {};
-          Object.entries(rs).forEach(([module, d]) => applyTableUpdate(module, d));
-
-          // Scores
-          const sr = data.scoring_results || {};
-          Object.entries(sr).forEach(([target, result]) => applyScore(target, result));
-
-          // Status bar
-          const fn = data.filename || '';
-          if (fn) document.getElementById('ovFilename').textContent = '— ' + fn;
-          if (data.status) setStatusBar('Status: ' + data.status,
-            data.status === 'Complete' ? 'done' : data.status === 'Failed' ? 'failed' : 'processing');
-
-          // Reports card
-          renderReportsCard(sha256, Object.values(sr)[0]);
-
-          if (data.status === 'Complete') {
-            document.getElementById('ovPdfLinkContainer').style.display = 'block';
-            document.getElementById('ovPdfLink').href = `/download/report/pdf/${sha256}`;
-          } else {
-            document.getElementById('ovPdfLinkContainer').style.display = 'none';
-          }
-
-          // Inventory
-          renderInventory(data.inventory || []);
-
-          // Restore dynamic tab counts
-          updateDynCounts();
-
-          // Premium Dynamic view transition
-          if (data.raw_dossier && data.raw_dossier.Dynamic_Analysis_Results) {
-            renderPremiumDynamic(data.raw_dossier.Dynamic_Analysis_Results);
-          } else {
-            document.getElementById('premiumDynContainer').style.display = 'none';
-            document.getElementById('legacyDynContainer').style.display = 'flex';
-          }
-        })
-        .catch(() => {
-          toast('Could not load analysis data.', 'error');
-          document.getElementById('peBody').innerHTML = '<tr><td colspan="3" class="empty-state">No data found.</td></tr>';
-          document.getElementById('mitBody').innerHTML = '<tr><td colspan="3" class="empty-state">No data found.</td></tr>';
-        });
-    }
-
-    /* ── Status helpers ──────────────────────────────────────────────── */
-    function setStatusBar(msg, state) {
-      const bar = document.getElementById('analysisStatusBar');
-      const txt = document.getElementById('statusBarText');
-      bar.style.display = 'flex';
-      bar.className = state === 'done' ? 'done' : state === 'failed' ? 'failed' : '';
-      txt.textContent = msg;
-      const dot = document.getElementById('statusDot');
-      if (dot) dot.className = state === 'processing' ? 'pulse' : '';
-    }
-
-    function setGlobalStatus(msg, color) {
-      document.getElementById('globalStatusText').textContent = msg;
-      document.getElementById('globalDot').style.background =
-        color === 'amber' ? 'hsl(var(--warn))' :
-          color === 'red' ? 'hsl(var(--danger))' : 'hsl(var(--ok))';
-      document.getElementById('globalDot').style.boxShadow =
-        color === 'amber' ? '0 0 6px hsl(var(--warn)/.6)' :
-          color === 'red' ? '0 0 6px hsl(var(--danger)/.6)' : '0 0 6px hsl(var(--ok)/.6)';
-    }
-
-    function showStatus(msg, state) {
-      const el = document.getElementById('uploadStatus');
-      el.style.display = 'block';
-      el.style.background = state === 'failed' ? 'hsl(var(--danger)/.1)'
-        : state === 'queued' ? 'hsl(210 100% 56%/.1)'
-          : state === 'processing' ? 'hsl(var(--warn)/.1)'
-            : 'hsl(var(--ok)/.1)';
-      el.style.border = state === 'failed' ? '1px solid hsl(var(--danger)/.3)'
-        : state === 'queued' ? '1px solid hsl(210 100% 56%/.3)'
-          : state === 'processing' ? '1px solid hsl(var(--warn)/.3)'
-            : '1px solid hsl(var(--ok)/.3)';
-      el.style.color = state === 'failed' ? 'hsl(var(--danger))'
-        : state === 'queued' ? 'hsl(210 100% 65%)'
-          : state === 'processing' ? 'hsl(var(--warn))'
-            : 'hsl(var(--ok))';
-      el.textContent = msg;
-    }
-
-    /* ── History ─────────────────────────────────────────────────────── */
-    function fetchHistory() {
-      fetch('/api/history')
-        .then(r => r.json())
-        .then(rows => {
-          if (Array.isArray(rows)) {
-            updateHistoryTables(rows);
-            updateStats(rows);
-          }
-        })
-        .catch(() => { });
-    }
-
-    function updateStats(rows) {
-      if (!Array.isArray(rows)) return;
-      const total = rows.length;
-      const proc = rows.filter(r => r && (r.status === 'Processing' || r.status === 'Queued')).length;
-      const mal = rows.filter(r => r && r.risk_score !== '-' && r.risk_score !== null && r.risk_score !== undefined && parseFloat(r.risk_score) >= 75).length;
-      const scored = rows.filter(r => r && r.risk_score !== '-' && r.risk_score !== null && r.risk_score !== undefined && !isNaN(parseFloat(r.risk_score)));
-      const avg = scored.length
-        ? (scored.reduce((s, r) => s + parseFloat(r.risk_score) / 10, 0) / scored.length).toFixed(1)
-        : null;
-      
-      const stTotal = document.getElementById('st-total');
-      const stProc = document.getElementById('st-proc');
-      const stMal = document.getElementById('st-mal');
-      const stAvg = document.getElementById('st-avg');
-
-      if (stTotal) stTotal.textContent = total;
-      if (stProc) stProc.textContent = proc;
-      if (stMal) stMal.textContent = mal;
-      if (stAvg) stAvg.textContent = avg !== null ? avg : '—';
-    }
-
-    function historyRowHtml(item) {
-      if (!item) return '';
-      const sha = item.sha256_hash || '';
-      const filename = item.filename || 'unknown';
-      const statusText = item.status || 'Complete';
-      const statusClass = statusText.toLowerCase();
-
-      const sv = (item.risk_score !== '-' && item.risk_score !== null && item.risk_score !== undefined && !isNaN(parseFloat(item.risk_score)))
-        ? parseFloat(item.risk_score) / 10.0 
-        : null;
-
-      const pill = (sv !== null && !isNaN(sv))
-        ? `<span class="score-pill ${sv >= 7.5 ? 'score-malicious' : sv >= 5 ? 'score-highrisk' : sv >= 3 ? 'score-suspicious' : 'score-clean'}">${sv.toFixed(1)}</span>`
-        : '<span style="color:hsl(var(--text-dim));">—</span>';
-
-      let terminateLink = '';
-      if (statusText === 'Processing' || statusText === 'Queued') {
-        terminateLink = `&nbsp; <a href="#" onclick="terminateAnalysis('${sha}');return false;" class="section-link" style="color:hsl(var(--danger));">Terminate 🛑</a>`;
+      if (data.status === 'Complete') {
+        document.getElementById('ovPdfLinkContainer').style.display = 'block';
+        document.getElementById('ovPdfLink').href = `/download/report/pdf/${sha256}`;
+      } else {
+        document.getElementById('ovPdfLinkContainer').style.display = 'none';
       }
 
-      const shaShort = sha ? (sha.substring(0, 16) + '…') : '—';
+      // Inventory
+      renderInventory(data.inventory || []);
 
-      return `<tr id="row-${sha}">
-    <td class="mono" style="max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(sha)}">${esc(shaShort)}</td>
+      // Restore dynamic tab counts
+      updateDynCounts();
+
+      // Premium Dynamic view transition
+      if (data.raw_dossier && data.raw_dossier.Dynamic_Analysis_Results) {
+        renderPremiumDynamic(data.raw_dossier.Dynamic_Analysis_Results);
+      } else {
+        document.getElementById('premiumDynContainer').style.display = 'none';
+        document.getElementById('legacyDynContainer').style.display = 'flex';
+      }
+    })
+    .catch(() => {
+      toast('Could not load analysis data.', 'error');
+      document.getElementById('peBody').innerHTML  = '<tr><td colspan="3" class="empty-state">No data found.</td></tr>';
+      document.getElementById('mitBody').innerHTML = '<tr><td colspan="3" class="empty-state">No data found.</td></tr>';
+    });
+}
+
+/* ── Status helpers ──────────────────────────────────────────────── */
+function setStatusBar(msg, state) {
+  const bar = document.getElementById('analysisStatusBar');
+  const txt = document.getElementById('statusBarText');
+  bar.style.display = 'flex';
+  bar.className = state === 'done' ? 'done' : state === 'failed' ? 'failed' : '';
+  txt.textContent = msg;
+  const dot = document.getElementById('statusDot');
+  if (dot) dot.className = state === 'processing' ? 'pulse' : '';
+}
+
+function setGlobalStatus(msg, color) {
+  document.getElementById('globalStatusText').textContent = msg;
+  document.getElementById('globalDot').style.background =
+    color === 'amber' ? 'hsl(var(--warn))' :
+    color === 'red'   ? 'hsl(var(--danger))' : 'hsl(var(--ok))';
+  document.getElementById('globalDot').style.boxShadow =
+    color === 'amber' ? '0 0 6px hsl(var(--warn)/.6)' :
+    color === 'red'   ? '0 0 6px hsl(var(--danger)/.6)' : '0 0 6px hsl(var(--ok)/.6)';
+}
+
+function showStatus(msg, state) {
+  const el = document.getElementById('uploadStatus');
+  el.style.display = 'block';
+  el.style.background = state === 'failed'     ? 'hsl(var(--danger)/.1)'
+                       : state === 'queued'     ? 'hsl(210 100% 56%/.1)'
+                       : state === 'processing' ? 'hsl(var(--warn)/.1)'
+                       : 'hsl(var(--ok)/.1)';
+  el.style.border  = state === 'failed'     ? '1px solid hsl(var(--danger)/.3)'
+                    : state === 'queued'     ? '1px solid hsl(210 100% 56%/.3)'
+                    : state === 'processing' ? '1px solid hsl(var(--warn)/.3)'
+                    : '1px solid hsl(var(--ok)/.3)';
+  el.style.color   = state === 'failed'     ? 'hsl(var(--danger))'
+                    : state === 'queued'     ? 'hsl(210 100% 65%)'
+                    : state === 'processing' ? 'hsl(var(--warn))'
+                    : 'hsl(var(--ok))';
+  el.textContent = msg;
+}
+
+/* ── History ─────────────────────────────────────────────────────── */
+function fetchHistory() {
+  fetch('/api/history')
+    .then(r => r.json())
+    .then(rows => { updateHistoryTables(rows); updateStats(rows); })
+    .catch(() => {});
+}
+
+function updateStats(rows) {
+  const total  = rows.length;
+  const proc   = rows.filter(r => r.status === 'Processing' || r.status === 'Queued').length;
+  const mal    = rows.filter(r => r.risk_score !== '-' && parseFloat(r.risk_score) >= 75).length;
+  const scored = rows.filter(r => r.risk_score !== '-');
+  const avg    = scored.length
+    ? (scored.reduce((s,r) => s + parseFloat(r.risk_score)/10, 0) / scored.length).toFixed(1)
+    : null;
+  document.getElementById('st-total').textContent = total;
+  document.getElementById('st-proc').textContent  = proc;
+  document.getElementById('st-mal').textContent   = mal;
+  document.getElementById('st-avg').textContent   = avg !== null ? avg : '—';
+}
+
+function historyRowHtml(item) {
+  const sv = item.risk_score !== '-' ? parseFloat(item.risk_score) / 10.0 : null;
+  const pill = sv !== null
+    ? `<span class="score-pill ${sv>=7.5?'score-malicious':sv>=5?'score-highrisk':sv>=3?'score-suspicious':'score-clean'}">${sv.toFixed(1)}</span>`
+    : '<span style="color:hsl(var(--text-dim));">—</span>';
+  
+  let terminateLink = '';
+  if (item.status === 'Processing' || item.status === 'Queued') {
+    terminateLink = `&nbsp; <a href="#" onclick="terminateAnalysis('${item.sha256_hash}');return false;" class="section-link" style="color:hsl(var(--danger));">Terminate 🛑</a>`;
+  }
+
+  return `<tr id="row-${item.sha256_hash}">
+    <td class="mono" style="max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(item.sha256_hash)}">${item.sha256_hash.substring(0,16)}…</td>
     <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-      <a href="#" onclick="loadAnalysis('${sha}');return false;" class="section-link" style="font-weight:600;">${esc(filename)}</a>
+      <a href="#" onclick="loadAnalysis('${item.sha256_hash}');return false;" class="section-link" style="font-weight:600;">${esc(item.filename)}</a>
     </td>
-    <td style="color:hsl(var(--text-dim));font-size:.7rem;white-space:nowrap;">${esc(item.timestamp || '—')}</td>
-    <td><span class="badge badge-${statusClass}">${esc(statusText)}</span></td>
+    <td style="color:hsl(var(--text-dim));font-size:.7rem;white-space:nowrap;">${item.timestamp||'—'}</td>
+    <td><span class="badge badge-${item.status.toLowerCase()}">${esc(item.status)}</span></td>
     <td>${pill}</td>
     <td style="white-space:nowrap;">
-      <a href="#" onclick="loadAnalysis('${sha}');return false;" class="section-link">Load ↙</a>
+      <a href="#" onclick="loadAnalysis('${item.sha256_hash}');return false;" class="section-link">Load ↙</a>
       &nbsp;
-      <a href="/report/${sha}" class="section-link" target="_blank">Report ↗</a>
+      <a href="/report/${item.sha256_hash}" class="section-link" target="_blank">Report ↗</a>
       ${terminateLink}
     </td>
   </tr>`;
-    }
+}
 
-    function updateHistoryTables(rows) {
-      if (!Array.isArray(rows)) return;
-      const empty = '<tr><td colspan="6" class="empty-state"><span class="empty-icon">🧬</span>No samples yet.</td></tr>';
-      const html = rows.length ? rows.map(historyRowHtml).join('') : empty;
-      ['historyBody', 'reportHistoryBody'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = html;
+function updateHistoryTables(rows) {
+  const empty = '<tr><td colspan="6" class="empty-state"><span class="empty-icon">🧬</span>No samples yet.</td></tr>';
+  const html  = rows.length ? rows.map(historyRowHtml).join('') : empty;
+  ['historyBody','reportHistoryBody'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  });
+}
+
+function terminateAnalysis(sha256) {
+  if (confirm("Are you sure you want to terminate/cancel this analysis?")) {
+    fetch('/api/terminate/' + sha256, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'Terminated' || data.success || data.message) {
+          toast('Analysis termination requested successfully.', 'success');
+          fetchHistory();
+        } else {
+          toast('Failed to terminate analysis: ' + (data.error || 'unknown error'), 'error');
+        }
+      })
+      .catch(err => {
+        toast('Error requesting analysis termination.', 'error');
       });
-    }
-
-    function terminateAnalysis(sha256) {
-      if (confirm("Are you sure you want to terminate/cancel this analysis?")) {
-        fetch('/api/terminate/' + sha256, { method: 'POST' })
-          .then(r => r.json())
-          .then(data => {
-            if (data.status === 'Terminated' || data.success || data.message) {
-              toast('Analysis termination requested successfully.', 'success');
-              fetchHistory();
-            } else {
-              toast('Failed to terminate analysis: ' + (data.error || 'unknown error'), 'error');
-            }
-          })
-          .catch(err => {
-            toast('Error requesting analysis termination.', 'error');
-          });
-      }
-    }
+  }
+}
 
 
-    /* ── Utilities ───────────────────────────────────────────────────── */
-    function esc(s) {
-      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+/* ── Utilities ───────────────────────────────────────────────────── */
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-    function verdictColor(v) {
-      if (!v) return 'hsl(var(--ok))';
-      const u = v.toUpperCase();
-      return u.includes('MALICIOUS') ? 'hsl(var(--danger))' :
-        u.includes('HIGH') ? '#ff9500' :
-          u.includes('SUSPICIOUS') ? 'hsl(var(--warn))' : 'hsl(var(--ok))';
-    }
+function verdictColor(v) {
+  if (!v) return 'hsl(var(--ok))';
+  const u = v.toUpperCase();
+  return u.includes('MALICIOUS') ? 'hsl(var(--danger))' :
+         u.includes('HIGH')      ? '#ff9500' :
+         u.includes('SUSPICIOUS')? 'hsl(var(--warn))' : 'hsl(var(--ok))';
+}
 
-    function toast(msg, type) {
-      const el = document.createElement('div');
-      el.className = `toast toast-${type || 'info'}`;
-      el.textContent = msg;
-      document.getElementById('toastArea').appendChild(el);
-      setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4000);
-    }
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type||'info'}`;
+  el.textContent = msg;
+  document.getElementById('toastArea').appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; setTimeout(() => el.remove(), 300); }, 4000);
+}
 
-    /* ── Init ─────────────────────────────────────────────────────────── */
-    fetchHistory();
-    setInterval(fetchHistory, 5000);
+/* ── Init ─────────────────────────────────────────────────────────── */
+fetchHistory();
+setInterval(fetchHistory, 5000);
 
-    /* ── Premium Dynamic Tab rendering ── */
-    function renderPremiumDynamic(dynResults) {
-      const container = document.getElementById('premiumDynContainer');
-      container.innerHTML = '';
-      container.style.display = 'flex';
-      document.getElementById('legacyDynContainer').style.display = 'none';
+/* ── Premium Dynamic Tab rendering ── */
+function renderPremiumDynamic(dynResults) {
+  const container = document.getElementById('premiumDynContainer');
+  container.innerHTML = '';
+  container.style.display = 'flex';
+  document.getElementById('legacyDynContainer').style.display = 'none';
 
-      let hasPremiumData = false;
+  let hasPremiumData = false;
 
-      Object.entries(dynResults).forEach(([target, categories]) => {
-        if (categories && categories.process_tree_generation) {
-          hasPremiumData = true;
-          const card = document.createElement('div');
-          card.className = 'card';
-          card.style.width = '100%';
-
-          const targetId = target.replace(/\./g, '_');
-
-          let html = `
+  Object.entries(dynResults).forEach(([target, categories]) => {
+    if (categories && categories.process_tree_generation) {
+      hasPremiumData = true;
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.width = '100%';
+      
+      const targetId = target.replace(/\./g, '_');
+      
+      let html = `
         <div class="card-title">⚡ ${target}</div>
         <div class="section-tabs" style="margin-bottom:1.25rem;">
           <button class="stab active" onclick="switchDashboardSubTab(event, '${targetId}-tree')">🌳 Process Tree</button>
@@ -2359,18 +1450,18 @@
         </div>
       `;
 
-          // 1. Process Tree
-          const treeRoot = categories.process_tree_generation.tree || {};
-          let treeHtml = '';
-
-          function renderProcNode(node) {
-            let childHtml = '';
-            if (node.children) {
-              node.children.forEach(c => {
-                childHtml += renderProcNode(c);
-              });
-            }
-            return `
+      // 1. Process Tree
+      const treeRoot = categories.process_tree_generation.tree || {};
+      let treeHtml = '';
+      
+      function renderProcNode(node) {
+        let childHtml = '';
+        if (node.children) {
+          node.children.forEach(c => {
+            childHtml += renderProcNode(c);
+          });
+        }
+        return `
           <div style="margin-left:1.5rem;padding-left:.5rem;border-left:1px dashed #475569;position:relative;margin-top:.25rem;">
             <span style="color:#ffd966;font-weight:700;">${esc(node.process_name)}</span> 
             <span style="color:#64748b;font-size:.68rem;">(PID: ${node.pid} / PPID: ${node.ppid})</span>
@@ -2378,15 +1469,15 @@
             ${childHtml}
           </div>
         `;
-          }
-
-          if (treeRoot && treeRoot.pid) {
-            treeHtml = renderProcNode(treeRoot);
-          } else {
-            treeHtml = '<p style="color:#64748b;padding:.5rem;">No process tree available.</p>';
-          }
-
-          html += `
+      }
+      
+      if (treeRoot && treeRoot.pid) {
+        treeHtml = renderProcNode(treeRoot);
+      } else {
+        treeHtml = '<p style="color:#64748b;padding:.5rem;">No process tree available.</p>';
+      }
+      
+      html += `
         <div class="sub-panel active" id="sub-${targetId}-tree">
           <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Process Spawn Hierarchy</h4>
           <div style="background:#050509;border:1px solid hsl(var(--border-slate));border-radius:.375rem;padding:.9rem;font-family:var(--font-mono);font-size:.73rem;overflow-x:auto;">
@@ -2397,16 +1488,16 @@
         </div>
       `;
 
-          // 2. File System
-          const fs = categories.file_system_monitoring || {};
-          let fsRows = '';
-          (fs.files_created || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-enabled">Created</span></td></tr>`);
-          (fs.files_modified || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-processing">Modified</span></td></tr>`);
-          (fs.files_deleted || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-failed">Deleted</span></td></tr>`);
-          (fs.files_renamed || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-queued">Renamed</span></td></tr>`);
-          if (!fsRows) fsRows = `<tr><td colspan="2" class="empty-state">No file system changes captured.</td></tr>`;
-
-          html += `
+      // 2. File System
+      const fs = categories.file_system_monitoring || {};
+      let fsRows = '';
+      (fs.files_created || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-enabled">Created</span></td></tr>`);
+      (fs.files_modified || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-processing">Modified</span></td></tr>`);
+      (fs.files_deleted || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-failed">Deleted</span></td></tr>`);
+      (fs.files_renamed || []).forEach(f => fsRows += `<tr><td class="mono">${esc(f)}</td><td><span class="badge badge-queued">Renamed</span></td></tr>`);
+      if (!fsRows) fsRows = `<tr><td colspan="2" class="empty-state">No file system changes captured.</td></tr>`;
+      
+      html += `
         <div class="sub-panel" id="sub-${targetId}-fs" style="display:none;">
           <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">File Operations</h4>
           <table class="data-table">
@@ -2416,16 +1507,16 @@
         </div>
       `;
 
-          // 3. Registry
-          const reg = categories.registry_monitoring || {};
-          let regRows = '';
-          (reg.values_added || []).forEach(val => regRows += `<tr><td class="mono">${esc(val.path)}</td><td><span class="badge badge-enabled">Added</span></td><td class="mono">${esc(val.data)} (${esc(val.type)})</td></tr>`);
-          (reg.values_modified || []).forEach(val => regRows += `<tr><td class="mono">${esc(val.path)}</td><td><span class="badge badge-processing">Modified</span></td><td class="mono">${esc(val.data)} (${esc(val.type)})</td></tr>`);
-          (reg.values_deleted || []).forEach(v => regRows += `<tr><td class="mono">${esc(v)}</td><td><span class="badge badge-failed">Val Deleted</span></td><td>—</td></tr>`);
-          (reg.keys_deleted || []).forEach(k => regRows += `<tr><td class="mono">${esc(k)}</td><td><span class="badge badge-failed">Key Deleted</span></td><td>—</td></tr>`);
-          if (!regRows) regRows = `<tr><td colspan="3" class="empty-state">No registry mutations captured.</td></tr>`;
+      // 3. Registry
+      const reg = categories.registry_monitoring || {};
+      let regRows = '';
+      (reg.values_added || []).forEach(val => regRows += `<tr><td class="mono">${esc(val.path)}</td><td><span class="badge badge-enabled">Added</span></td><td class="mono">${esc(val.data)} (${esc(val.type)})</td></tr>`);
+      (reg.values_modified || []).forEach(val => regRows += `<tr><td class="mono">${esc(val.path)}</td><td><span class="badge badge-processing">Modified</span></td><td class="mono">${esc(val.data)} (${esc(val.type)})</td></tr>`);
+      (reg.values_deleted || []).forEach(v => regRows += `<tr><td class="mono">${esc(v)}</td><td><span class="badge badge-failed">Val Deleted</span></td><td>—</td></tr>`);
+      (reg.keys_deleted || []).forEach(k => regRows += `<tr><td class="mono">${esc(k)}</td><td><span class="badge badge-failed">Key Deleted</span></td><td>—</td></tr>`);
+      if (!regRows) regRows = `<tr><td colspan="3" class="empty-state">No registry mutations captured.</td></tr>`;
 
-          html += `
+      html += `
         <div class="sub-panel" id="sub-${targetId}-reg" style="display:none;">
           <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Registry Mutations</h4>
           <table class="data-table">
@@ -2435,11 +1526,11 @@
         </div>
       `;
 
-          // 4. Network
-          const net = categories.network_communication_analysis || {};
-          let netRows = '';
-          (net.details || []).forEach(conn => {
-            netRows += `
+      // 4. Network
+      const net = categories.network_communication_analysis || {};
+      let netRows = '';
+      (net.details || []).forEach(conn => {
+        netRows += `
           <tr>
             <td class="mono" style="font-weight:700;color:hsl(var(--accent));">${esc(conn.protocol)}</td>
             <td style="color:#94a3b8;">${esc(conn.tool)}</td>
@@ -2449,10 +1540,10 @@
             <td class="mono" style="font-size:.65rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(conn.raw_hex)}">${esc(conn.raw_hex)}</td>
           </tr>
         `;
-          });
-          if (!netRows) netRows = `<tr><td colspan="6" class="empty-state">No network connections intercepted.</td></tr>`;
+      });
+      if (!netRows) netRows = `<tr><td colspan="6" class="empty-state">No network connections intercepted.</td></tr>`;
 
-          html += `
+      html += `
         <div class="sub-panel" id="sub-${targetId}-net" style="display:none;">
           <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Network Communication Intercepts</h4>
           <table class="data-table">
@@ -2462,24 +1553,24 @@
         </div>
       `;
 
-          // 5. DLL Signatures
-          const dlls = categories.dll_signature_monitoring || {};
-          let dllRows = '';
-          (dlls.details || []).forEach(d => {
-            const isUnsigned = d.signature_status === 'UNSIGNED';
-            dllRows += `
+      // 5. DLL Signatures
+      const dlls = categories.dll_signature_monitoring || {};
+      let dllRows = '';
+      (dlls.details || []).forEach(d => {
+        const isUnsigned = d.signature_status === 'UNSIGNED';
+        dllRows += `
           <tr>
             <td class="mono" style="font-weight:700;">${esc(d.dll_name)}</td>
             <td class="mono" style="font-size:.68rem;color:#94a3b8;">${esc(d.dll_path)}</td>
             <td><span class="badge ${isUnsigned ? 'badge-failed' : 'badge-enabled'}">${esc(d.signature_status)}</span></td>
-            <td class="mono" style="font-size:.68rem;">${esc(d.sha256.substring(0, 16))}…</td>
+            <td class="mono" style="font-size:.68rem;">${esc(d.sha256.substring(0,16))}…</td>
             <td style="font-size:.7rem;color:#ff6b6b;">${esc(d.risk_indicators.join(', '))}</td>
           </tr>
         `;
-          });
-          if (!dllRows) dllRows = `<tr><td colspan="5" class="empty-state">No loaded DLLs tracked.</td></tr>`;
+      });
+      if (!dllRows) dllRows = `<tr><td colspan="5" class="empty-state">No loaded DLLs tracked.</td></tr>`;
 
-          html += `
+      html += `
         <div class="sub-panel" id="sub-${targetId}-dll" style="display:none;">
           <h4 style="font-size:.8rem;color:#94a3b8;margin-bottom:.5rem;">Loaded DLL Verification</h4>
           <table class="data-table">
@@ -2489,23 +1580,23 @@
         </div>
       `;
 
-          // 6. Resources
-          const res = categories.resource_utility_monitoring || {};
-          const peakCpu = res.summary ? res.summary.peak_cpu_percent : 0;
-          const peakMem = res.summary ? (res.summary.peak_memory_bytes / 1048576).toFixed(2) : 0;
-
-          let resRows = '';
-          (res.time_series || []).forEach(r => {
-            resRows += `
+      // 6. Resources
+      const res = categories.resource_utility_monitoring || {};
+      const peakCpu = res.summary ? res.summary.peak_cpu_percent : 0;
+      const peakMem = res.summary ? (res.summary.peak_memory_bytes / 1048576).toFixed(2) : 0;
+      
+      let resRows = '';
+      (res.time_series || []).forEach(r => {
+        resRows += `
           <tr>
             <td class="mono">${r.elapsed_seconds}s</td>
             <td class="mono">${r.cpu_percent}%</td>
             <td class="mono">${(r.memory_bytes / 1048576).toFixed(2)} MB (${r.memory_bytes} B)</td>
           </tr>
         `;
-          });
+      });
 
-          html += `
+      html += `
         <div class="sub-panel" id="sub-${targetId}-res" style="display:none;">
           <div style="display:flex;gap:1.5rem;margin-bottom:1rem;">
             <div style="flex:1;background:hsl(var(--bg-card-2));padding:.75rem;border-radius:.375rem;border:1px solid hsl(var(--border));">
@@ -2564,308 +1655,305 @@
         </div>
       `;
 
-          card.innerHTML = html;
-          container.appendChild(card);
+      card.innerHTML = html;
+      container.appendChild(card);
 
-          // Initialize the dynamic resource usage chart
-          if (typeof initResourceChart === 'function') {
-            initResourceChart(targetId, res.time_series || []);
-          }
-        }
-      });
-
-      if (!hasPremiumData) {
-        container.style.display = 'none';
-        document.getElementById('legacyDynContainer').style.display = 'flex';
+      // Initialize the dynamic resource usage chart
+      if (typeof initResourceChart === 'function') {
+        initResourceChart(targetId, res.time_series || []);
       }
     }
+  });
 
-    function switchDashboardSubTab(event, subTabId) {
-      const container = event.target.closest('.card');
-      if (!container) return;
-      container.querySelectorAll('.section-tabs .stab').forEach(btn => btn.classList.remove('active'));
-      event.target.classList.add('active');
+  if (!hasPremiumData) {
+    container.style.display = 'none';
+    document.getElementById('legacyDynContainer').style.display = 'flex';
+  }
+}
 
-      container.querySelectorAll('.sub-panel').forEach(panel => panel.style.display = 'none');
-      const activePanel = container.querySelector('#sub-' + subTabId);
-      if (activePanel) activePanel.style.display = 'block';
+function switchDashboardSubTab(event, subTabId) {
+  const container = event.target.closest('.card');
+  if (!container) return;
+  container.querySelectorAll('.section-tabs .stab').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+  
+  container.querySelectorAll('.sub-panel').forEach(panel => panel.style.display = 'none');
+  const activePanel = container.querySelector('#sub-' + subTabId);
+  if (activePanel) activePanel.style.display = 'block';
+}
+
+function initResourceChart(targetId, timeSeries) {
+  if (!timeSeries || timeSeries.length === 0) return;
+
+  const labels = timeSeries.map(r => r.elapsed_seconds + 's');
+  const ramData = timeSeries.map(r => r.memory_bytes / 1048576); // convert to MB
+  const cpuData = timeSeries.map(r => r.cpu_percent);
+  const diskData = timeSeries.map(r => r.disk_write_bytes_sec || 0);
+  const netData = timeSeries.map(r => r.network_send_bytes_sec || 0);
+
+  const maxElapsed = timeSeries[timeSeries.length - 1].elapsed_seconds;
+  const titleEl = document.getElementById('chartTitle_' + targetId);
+  if (titleEl) {
+    titleEl.textContent = `Resource Usage Breakdown (0s - ${maxElapsed}s Elapsed)`;
+  }
+
+  // Find the largest RAM jump
+  let maxJumpIndex = -1;
+  let maxJumpDiff = 0;
+  for (let i = 1; i < timeSeries.length; i++) {
+    let diff = timeSeries[i].memory_bytes - timeSeries[i-1].memory_bytes;
+    if (diff > maxJumpDiff) {
+      maxJumpDiff = diff;
+      maxJumpIndex = i;
     }
+  }
 
-    function initResourceChart(targetId, timeSeries) {
-      if (!timeSeries || timeSeries.length === 0) return;
-
-      const labels = timeSeries.map(r => r.elapsed_seconds + 's');
-      const ramData = timeSeries.map(r => r.memory_bytes / 1048576); // convert to MB
-      const cpuData = timeSeries.map(r => r.cpu_percent);
-      const diskData = timeSeries.map(r => r.disk_write_bytes_sec || 0);
-      const netData = timeSeries.map(r => r.network_send_bytes_sec || 0);
-
-      const maxElapsed = timeSeries[timeSeries.length - 1].elapsed_seconds;
-      const titleEl = document.getElementById('chartTitle_' + targetId);
-      if (titleEl) {
-        titleEl.textContent = `Resource Usage Breakdown (0s - ${maxElapsed}s Elapsed)`;
-      }
-
-      // Find the largest RAM jump
-      let maxJumpIndex = -1;
-      let maxJumpDiff = 0;
-      for (let i = 1; i < timeSeries.length; i++) {
-        let diff = timeSeries[i].memory_bytes - timeSeries[i - 1].memory_bytes;
-        if (diff > maxJumpDiff) {
-          maxJumpDiff = diff;
-          maxJumpIndex = i;
+  // Sparkline Chart.js instance
+  const sparkCanvas = document.getElementById('cpuSparkline_' + targetId);
+  if (sparkCanvas) {
+    new Chart(sparkCanvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: cpuData,
+          borderColor: '#ffd966',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3
+        }]
+      },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false, min: 0 }
         }
       }
+    });
+  }
 
-      // Sparkline Chart.js instance
-      const sparkCanvas = document.getElementById('cpuSparkline_' + targetId);
-      if (sparkCanvas) {
-        new Chart(sparkCanvas, {
-          type: 'line',
-          data: {
-            labels: labels,
-            datasets: [{
-              data: cpuData,
-              borderColor: '#ffd966',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              fill: false,
-              tension: 0.3
-            }]
+  // Annotation plugin
+  const ramAnnotationPlugin = {
+    id: 'ramAnnotation',
+    afterDatasetsDraw(chart) {
+      if (maxJumpIndex === -1) return;
+      const { ctx, chartArea: { top, bottom, left, right } } = chart;
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data[maxJumpIndex]) return;
+      
+      const point = meta.data[maxJumpIndex];
+      const x = point.x;
+      const y = point.y;
+      
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#4A90D9';
+      ctx.stroke();
+      
+      const beforeBytes = timeSeries[maxJumpIndex-1].memory_bytes;
+      const afterBytes = timeSeries[maxJumpIndex].memory_bytes;
+      const text = `RAM Increase @ ${timeSeries[maxJumpIndex].elapsed_seconds}s | Before: ${beforeBytes.toLocaleString()} bytes -> After: ${afterBytes.toLocaleString()} bytes`;
+      
+      ctx.font = 'bold 11px var(--font-sans), Inter, sans-serif';
+      const textWidth = ctx.measureText(text).width;
+      const paddingX = 8;
+      const paddingY = 6;
+      const boxWidth = textWidth + paddingX * 2;
+      const boxHeight = 22;
+      
+      let boxX = x + 12;
+      let boxY = y - boxHeight / 2;
+      
+      if (boxX + boxWidth > right) {
+        boxX = x - boxWidth - 12;
+      }
+      
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+      } else {
+        ctx.rect(boxX, boxY, boxWidth, boxHeight);
+      }
+      ctx.fill();
+      ctx.stroke();
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText(text, boxX + paddingX, boxY + boxHeight / 2);
+      ctx.restore();
+    }
+  };
+
+  // Main Chart
+  const mainCanvas = document.getElementById('resourceChart_' + targetId);
+  if (mainCanvas) {
+    const peakCpu = Math.max(...cpuData);
+    new Chart(mainCanvas, {
+      type: 'line',
+      plugins: [ramAnnotationPlugin],
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'RAM (Memory) (MB)',
+            data: ramData,
+            borderColor: '#4A90D9',
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const {ctx, chartArea} = chart;
+              if (!chartArea) return null;
+              const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+              gradient.addColorStop(0, 'rgba(74, 144, 217, 0.25)');
+              gradient.addColorStop(1, 'rgba(74, 144, 217, 0.0)');
+              return gradient;
+            },
+            fill: true,
+            yAxisID: 'y1',
+            tension: 0.2,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4
           },
-          options: {
-            responsive: false,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { enabled: false } },
-            scales: {
-              x: { display: false },
-              y: { display: false, min: 0 }
+          {
+            label: 'CPU (%)',
+            data: cpuData,
+            borderColor: '#ffd966',
+            fill: false,
+            yAxisID: 'y2',
+            tension: 0.2,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            pointHoverRadius: 4
+          },
+          {
+            label: 'Disk Write (B/s)',
+            data: diskData,
+            borderColor: '#E05C5C',
+            fill: false,
+            yAxisID: 'y2',
+            tension: 0.2,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            pointHoverRadius: 4
+          },
+          {
+            label: 'Net Send (B/s)',
+            data: netData,
+            borderColor: '#9B59B6',
+            fill: false,
+            yAxisID: 'y2',
+            tension: 0.2,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            pointHoverRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onHover: (event, activeElements) => {
+          const valEl = document.getElementById('cpuVal_' + targetId);
+          if (valEl) {
+            if (activeElements && activeElements.length > 0) {
+              const dataIndex = activeElements[0].index;
+              const hoveredCpu = cpuData[dataIndex];
+              valEl.textContent = hoveredCpu.toFixed(1) + '%';
+            } else {
+              valEl.textContent = peakCpu.toFixed(1) + '%';
             }
           }
-        });
-      }
-
-      // Annotation plugin
-      const ramAnnotationPlugin = {
-        id: 'ramAnnotation',
-        afterDatasetsDraw(chart) {
-          if (maxJumpIndex === -1) return;
-          const { ctx, chartArea: { top, bottom, left, right } } = chart;
-          const meta = chart.getDatasetMeta(0);
-          if (!meta || !meta.data[maxJumpIndex]) return;
-
-          const point = meta.data[maxJumpIndex];
-          const x = point.x;
-          const y = point.y;
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(x, y, 6, 0, 2 * Math.PI);
-          ctx.fillStyle = '#ffffff';
-          ctx.fill();
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = '#4A90D9';
-          ctx.stroke();
-
-          const beforeBytes = timeSeries[maxJumpIndex - 1].memory_bytes;
-          const afterBytes = timeSeries[maxJumpIndex].memory_bytes;
-          const text = `RAM Increase @ ${timeSeries[maxJumpIndex].elapsed_seconds}s | Before: ${beforeBytes.toLocaleString()} bytes -> After: ${afterBytes.toLocaleString()} bytes`;
-
-          ctx.font = 'bold 11px var(--font-sans), Inter, sans-serif';
-          const textWidth = ctx.measureText(text).width;
-          const paddingX = 8;
-          const paddingY = 6;
-          const boxWidth = textWidth + paddingX * 2;
-          const boxHeight = 22;
-
-          let boxX = x + 12;
-          let boxY = y - boxHeight / 2;
-
-          if (boxX + boxWidth > right) {
-            boxX = x - boxWidth - 12;
-          }
-
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-          ctx.strokeStyle = '#1e293b';
-          ctx.lineWidth = 1;
-
-          ctx.beginPath();
-          if (ctx.roundRect) {
-            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
-          } else {
-            ctx.rect(boxX, boxY, boxWidth, boxHeight);
-          }
-          ctx.fill();
-          ctx.stroke();
-
-          ctx.fillStyle = '#ffffff';
-          ctx.textBaseline = 'middle';
-          ctx.textAlign = 'left';
-          ctx.fillText(text, boxX + paddingX, boxY + boxHeight / 2);
-          ctx.restore();
-        }
-      };
-
-      // Main Chart
-      const mainCanvas = document.getElementById('resourceChart_' + targetId);
-      if (mainCanvas) {
-        const peakCpu = Math.max(...cpuData);
-        new Chart(mainCanvas, {
-          type: 'line',
-          plugins: [ramAnnotationPlugin],
-          data: {
-            labels: labels,
-            datasets: [
-              {
-                label: 'RAM (Memory) (MB)',
-                data: ramData,
-                borderColor: '#4A90D9',
-                backgroundColor: function (context) {
-                  const chart = context.chart;
-                  const { ctx, chartArea } = chart;
-                  if (!chartArea) return null;
-                  const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-                  gradient.addColorStop(0, 'rgba(74, 144, 217, 0.25)');
-                  gradient.addColorStop(1, 'rgba(74, 144, 217, 0.0)');
-                  return gradient;
-                },
-                fill: true,
-                yAxisID: 'y1',
-                tension: 0.2,
-                borderWidth: 2,
-                pointRadius: 0,
-                pointHoverRadius: 4
-              },
-              {
-                label: 'CPU (%)',
-                data: cpuData,
-                borderColor: '#ffd966',
-                fill: false,
-                yAxisID: 'y2',
-                tension: 0.2,
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 4
-              },
-              {
-                label: 'Disk Write (B/s)',
-                data: diskData,
-                borderColor: '#E05C5C',
-                fill: false,
-                yAxisID: 'y2',
-                tension: 0.2,
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 4
-              },
-              {
-                label: 'Net Send (B/s)',
-                data: netData,
-                borderColor: '#9B59B6',
-                fill: false,
-                yAxisID: 'y2',
-                tension: 0.2,
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 4
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            onHover: (event, activeElements) => {
-              const valEl = document.getElementById('cpuVal_' + targetId);
-              if (valEl) {
-                if (activeElements && activeElements.length > 0) {
-                  const dataIndex = activeElements[0].index;
-                  const hoveredCpu = cpuData[dataIndex];
-                  valEl.textContent = hoveredCpu.toFixed(1) + '%';
-                } else {
-                  valEl.textContent = peakCpu.toFixed(1) + '%';
-                }
-              }
-            },
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                mode: 'index',
-                intersect: false,
-                backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                titleColor: '#e2e8f0',
-                bodyColor: '#cbd5e1',
-                borderColor: '#1e293b',
-                borderWidth: 1,
-                callbacks: {
-                  label: function (context) {
-                    let label = context.dataset.label || '';
-                    if (label) label += ': ';
-                    if (context.parsed.y !== null) {
-                      if (context.datasetIndex === 0) {
-                        label += context.parsed.y.toFixed(2) + ' MB';
-                      } else if (context.datasetIndex === 1) {
-                        label += context.parsed.y.toFixed(1) + '%';
-                      } else {
-                        label += context.parsed.y.toLocaleString() + ' B/s';
-                      }
-                    }
-                    return label;
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            titleColor: '#e2e8f0',
+            bodyColor: '#cbd5e1',
+            borderColor: '#1e293b',
+            borderWidth: 1,
+            callbacks: {
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.parsed.y !== null) {
+                  if (context.datasetIndex === 0) {
+                    label += context.parsed.y.toFixed(2) + ' MB';
+                  } else if (context.datasetIndex === 1) {
+                    label += context.parsed.y.toFixed(1) + '%';
+                  } else {
+                    label += context.parsed.y.toLocaleString() + ' B/s';
                   }
                 }
-              }
-            },
-            scales: {
-              x: {
-                grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
-                ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
-                title: {
-                  display: true,
-                  text: 'Elapsed Time (Seconds)',
-                  color: '#64748b',
-                  font: { family: 'Inter', size: 11, weight: 'bold' }
-                }
-              },
-              y1: {
-                type: 'linear',
-                position: 'left',
-                grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
-                ticks: {
-                  color: '#64748b',
-                  font: { family: 'Inter', size: 10 },
-                  callback: function (value) { return value.toFixed(2) + ' MB'; }
-                },
-                title: {
-                  display: true,
-                  text: 'Memory (RAM)',
-                  color: '#64748b',
-                  font: { family: 'Inter', size: 11, weight: 'bold' }
-                }
-              },
-              y2: {
-                type: 'linear',
-                position: 'right',
-                grid: { drawOnChartArea: false, borderColor: 'rgba(255, 255, 255, 0.1)' },
-                ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
-                title: {
-                  display: true,
-                  text: 'CPU % / Bandwidth (B/s)',
-                  color: '#64748b',
-                  font: { family: 'Inter', size: 11, weight: 'bold' }
-                },
-                min: 0,
-                suggestedMax: 100
+                return label;
               }
             }
           }
-        });
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
+            ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
+            title: {
+              display: true,
+              text: 'Elapsed Time (Seconds)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 11, weight: 'bold' }
+            }
+          },
+          y1: {
+            type: 'linear',
+            position: 'left',
+            grid: { color: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.1)' },
+            ticks: {
+              color: '#64748b',
+              font: { family: 'Inter', size: 10 },
+              callback: function(value) { return value.toFixed(2) + ' MB'; }
+            },
+            title: {
+              display: true,
+              text: 'Memory (RAM)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 11, weight: 'bold' }
+            }
+          },
+          y2: {
+            type: 'linear',
+            position: 'right',
+            grid: { drawOnChartArea: false, borderColor: 'rgba(255, 255, 255, 0.1)' },
+            ticks: { color: '#64748b', font: { family: 'Inter', size: 10 } },
+            title: {
+              display: true,
+              text: 'CPU % / Bandwidth (B/s)',
+              color: '#64748b',
+              font: { family: 'Inter', size: 11, weight: 'bold' }
+            },
+            min: 0,
+            suggestedMax: 100
+          }
+        }
       }
-    }
+    });
+  }
+}
 
-    fetchHistory();
-    setInterval(fetchHistory, 5000);
-  </script>
+fetchHistory();
+setInterval(fetchHistory, 5000);
+</script>
 </body>
-
-</html>
-
 </html>
