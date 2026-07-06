@@ -83,11 +83,11 @@ class AnalysisPipeline:
     # PubSub entry point
     # ------------------------------------------------------------------
 
-    def _on_analysis_start(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False):
+    def _on_analysis_start(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False, mode="detonate"):
         pub.sendMessage("gui.log", msg=f"\n[*] Pipeline triggered for: {filepath}")
         thread = threading.Thread(
             target=self._execute_pipeline,
-            args=(filepath, run_static, run_dynamic, original_filename, duration_seconds, headless),
+            args=(filepath, run_static, run_dynamic, original_filename, duration_seconds, headless, mode),
             daemon=True,
         )
         thread.start()
@@ -96,7 +96,7 @@ class AnalysisPipeline:
     # Main pipeline
     # ------------------------------------------------------------------
 
-    def _execute_pipeline(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False):
+    def _execute_pipeline(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False, mode="detonate"):
         try:
             report_pkg_data     = []
             report_static_data  = {}
@@ -203,7 +203,7 @@ class AnalysisPipeline:
                         )
 
                         try:
-                            dyn_res = self.dynamic_module.run_sandbox_analysis(target_path, duration_seconds=duration_seconds, headless=headless)
+                            dyn_res = self.dynamic_module.run_sandbox_analysis(target_path, duration_seconds=duration_seconds, headless=headless, mode=mode)
                         except Exception as e:
                             pub.sendMessage(
                                 "gui.log",

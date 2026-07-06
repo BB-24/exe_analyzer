@@ -440,6 +440,32 @@ select option{background:hsl(222 28% 10%);}
               </p>
             </div>
 
+            <div id="detonation_mode_wrapper">
+              <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.45rem;">Sandbox Detonation Mode</label>
+              <div style="display:flex;gap:.5rem;margin-bottom:.9rem;">
+                <button type="button" id="btn-mode-detonate"
+                  onclick="setDetonationMode('detonate')"
+                  style="flex:1;padding:.45rem .5rem;border-radius:.4rem;font-size:.72rem;font-weight:700;cursor:pointer;
+                         background:hsl(var(--accent));color:#fff;border:2px solid hsl(var(--accent));
+                         transition:all .15s;"
+                  title="Run target binary as-is (standard analysis)">
+                  💥 Detonate
+                </button>
+                <button type="button" id="btn-mode-install"
+                  onclick="setDetonationMode('auto-install')"
+                  style="flex:1;padding:.45rem .5rem;border-radius:.4rem;font-size:.72rem;font-weight:700;cursor:pointer;
+                         background:transparent;color:hsl(var(--text-dim));border:2px solid hsl(var(--border));
+                         transition:all .15s;"
+                  title="Automatically run setup, detect installer type, use silent flags or UI automation">
+                  ⚙️ Auto-Install
+                </button>
+              </div>
+              <input type="hidden" id="sandbox_detonation_mode" value="detonate">
+              <p id="detonation_mode_desc" style="font-size:.67rem;color:hsl(var(--text-dim));margin-top:-.5rem;margin-bottom:.5rem;line-height:1.5;">
+                Detonate: Run the executable directly as a standalone program.
+              </p>
+            </div>
+
             <div id="dropZone" class="upload-zone"
                  onclick="document.getElementById('fileInput').click()"
                  ondragover="ev(event,'over')" ondragleave="ev(event,'leave')" ondrop="ev(event,'drop')">
@@ -759,6 +785,7 @@ document.getElementById('analysis_type').addEventListener('change', (e) => {
   const isStatic = e.target.value === 'static_only';
   document.getElementById('duration_wrapper').style.display  = isStatic ? 'none' : 'block';
   document.getElementById('run_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
+  document.getElementById('detonation_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
 });
 
 /* ── Run mode toggle ────────────────────────────────────────────── */
@@ -790,6 +817,35 @@ function setRunMode(isHeadless) {
   }
 }
 
+/* ── Detonation mode toggle ───────────────────────────────────────── */
+const DET_MODE_DESCS = {
+  'detonate': 'Detonate: Run the executable directly as a standalone program.',
+  'auto-install': 'Auto-Install: Automatically execute and automate installation using silent flags or UI automation.'
+};
+function setDetonationMode(mode) {
+  document.getElementById('sandbox_detonation_mode').value = mode;
+  const btnD = document.getElementById('btn-mode-detonate');
+  const btnI = document.getElementById('btn-mode-install');
+  const desc = document.getElementById('detonation_mode_desc');
+  if (mode === 'auto-install') {
+    btnI.style.background  = 'hsl(var(--accent))';
+    btnI.style.color       = '#fff';
+    btnI.style.borderColor = 'hsl(var(--accent))';
+    btnD.style.background  = 'transparent';
+    btnD.style.color       = 'hsl(var(--text-dim))';
+    btnD.style.borderColor = 'hsl(var(--border))';
+    desc.textContent = DET_MODE_DESCS['auto-install'];
+  } else {
+    btnD.style.background  = 'hsl(var(--accent))';
+    btnD.style.color       = '#fff';
+    btnD.style.borderColor = 'hsl(var(--accent))';
+    btnI.style.background  = 'transparent';
+    btnI.style.color       = 'hsl(var(--text-dim))';
+    btnI.style.borderColor = 'hsl(var(--border))';
+    desc.textContent = DET_MODE_DESCS['detonate'];
+  }
+}
+
 /* ── Upload ─────────────────────────────────────────────────────── */
 function handleUpload() {
   const file = document.getElementById('fileInput').files[0];
@@ -797,11 +853,13 @@ function handleUpload() {
   const type = document.getElementById('analysis_type').value;
   const duration = (document.getElementById('analysis_duration') || {value:'120'}).value;
   const headlessVal = document.getElementById('run_mode_headless').value;
+  const detonationModeVal = document.getElementById('sandbox_detonation_mode').value;
   const fd = new FormData();
   fd.append('file', file);
   fd.append('analysis_type', type);
   fd.append('analysis_duration', duration);
   fd.append('headless', headlessVal);
+  fd.append('analysis_mode', detonationModeVal);
 
   showStatus('Uploading ' + file.name + '…', 'queued');
 

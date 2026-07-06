@@ -833,14 +833,14 @@ def get_sha256(path):
     except Exception:
         return "N/A"
 
-def parse_kernel_logs():
+def parse_kernel_logs(mode="detonate"):
     """Parses ProcMon CSV to extract filesystem, registry, memory, and network mutations.
     
     Uses a two-pass approach:
       Pass 1: Build the complete process tree from Process Create events. Start from the
               root sample PID and walk the tree to discover ALL descendant PIDs. Also
               include system service processes (like msiexec.exe) whose command lines
-              reference the sample path.
+              reference the sample path or temp installer paths.
       Pass 2: Re-scan the CSV with the expanded PID set to capture all file, registry,
               network, DLL, and process events from the full tree.
     """
@@ -903,21 +903,28 @@ def parse_kernel_logs():
                 expanded_pids.add(child)
                 queue.append(child)
 
-    # Also include system service processes whose command line references the sample
-    # (e.g., msiexec.exe /i C:\...\sample.exe, or DrvInst.exe referencing the sample)
-    for pid_str, cmdline in pid_cmdlines.items():
-        if pid_str not in expanded_pids and cmdline:
-            cmdline_lower = cmdline.lower()
-            if sample_basename in cmdline_lower or "sample.exe" in cmdline_lower:
-                expanded_pids.add(pid_str)
-                # Also add children of this service process
-                sub_queue = [pid_str]
-                while sub_queue:
-                    cur = sub_queue.pop(0)
-                    for child in child_map.get(cur, set()):
-                        if child not in expanded_pids:
-                            expanded_pids.add(child)
-                            sub_queue.append(child)
+    # In auto-install mode or as fallback, scan all processes to find installer-related ones
+    # (e.g., msiexec.exe, setup.exe, install.exe, anything referencing temp or the sample)
+    for pid_str, proc_name in pid_names.items():
+        p_lower = proc_name.lower()
+        cmdline = pid_cmdlines.get(pid_str, "").lower()
+        
+        is_installer_process = False
+        if p_lower in ("msiexec.exe", "setup.exe", "install.exe") or "msiexec" in cmdline or "setup" in cmdline or "install" in cmdline or "temp" in cmdline:
+            is_installer_process = True
+        elif sample_basename in cmdline or "sample.exe" in cmdline:
+            is_installer_process = True
+            
+        if is_installer_process and pid_str not in expanded_pids:
+            expanded_pids.add(pid_str)
+            # Also recursively add all children of this process
+            sub_queue = [pid_str]
+            while sub_queue:
+                cur = sub_queue.pop(0)
+                for child in child_map.get(cur, set()):
+                    if child not in expanded_pids:
+                        expanded_pids.add(child)
+                        sub_queue.append(child)
 
     stream_log("SYSTEM", "INFO",
                f"Pass 1 complete: {len(expanded_pids)} PIDs in process tree "
@@ -1263,6 +1270,154 @@ def parse_kernel_logs():
 
     stream_log("SYSTEM", "INFO", "Kernel trace parsing complete.")
 
+def detect_installer_silent_flags(filepath):
+    """Detects common installer types (Inno Setup, InstallShield, Wise, Nullsoft, MSI)
+    and automatically returns the correct silent flags."""
+    try:
+        if not os.path.exists(filepath):
+            return None, []
+        
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".msi":
+            return "MSI", ["/qn", "/norestart"]
+            
+        with open(filepath, "rb") as f:
+            data = f.read(5 * 1024 * 1024) # Read up to 5MB
+            
+        if b"Inno Setup" in data or b"Inno" in data or b"Inno Setup Setup Instructions" in data:
+            return "Inno Setup", ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"]
+        elif b"NullsoftInst" in data or b"Nullsoft" in data:
+            return "Nullsoft NSIS", ["/S"]
+        elif b"InstallShield" in data:
+            return "InstallShield", ["/s", "/v/qn"]
+        elif b"Wise Installation System" in data or b"Wise Solutions" in data:
+            return "Wise", ["/s"]
+        elif b"WiX Toolset" in data or b"wixdepca" in data:
+            return "WiX", ["/quiet", "/norestart"]
+            
+    except Exception as e:
+        stream_log("SYSTEM", "WARNING", f"Installer detection error: {e}")
+        
+    return None, []
+
+def get_window_pid(hwnd):
+    try:
+        import win32process
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return pid
+    except Exception:
+        return 0
+
+def click_button(hwnd_btn):
+    try:
+        import win32gui
+        import win32con
+        # Send BM_CLICK
+        win32gui.SendMessage(hwnd_btn, win32con.BM_CLICK, 0, 0)
+        # Fallback mouse events
+        win32gui.PostMessage(hwnd_btn, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, 0)
+        win32gui.PostMessage(hwnd_btn, win32con.WM_LBUTTONUP, 0, 0)
+    except Exception:
+        pass
+
+def set_checkbox(hwnd_chk):
+    try:
+        import win32gui
+        import win32con
+        win32gui.SendMessage(hwnd_chk, win32con.BM_SETCHECK, win32con.BST_CHECKED, 0)
+    except Exception:
+        pass
+
+# Background UI automation thread
+ui_auto_active = True
+
+def ui_automation_loop():
+    global ui_auto_active
+    stream_log("SYSTEM", "INFO", "UI Automation Fallback thread started.")
+    while ui_auto_active and analysis_active:
+        time.sleep(0.5)
+        try:
+            import win32gui
+            win32gui.EnumWindows(enum_windows_callback, None)
+        except Exception as e:
+            print(f"[-] UI Automation loop error: {e}")
+
+def enum_windows_callback(hwnd, extra):
+    try:
+        import win32gui
+        import win32process
+        import win32con
+        
+        if not win32gui.IsWindowVisible(hwnd) or not win32gui.IsWindowEnabled(hwnd):
+            return True
+            
+        pid = get_window_pid(hwnd)
+        if not pid:
+            return True
+            
+        is_tracked = False
+        with tracking_lock:
+            if str(pid) in tracked_pids:
+                is_tracked = True
+            else:
+                try:
+                    p = psutil.Process(pid)
+                    ppid = p.ppid()
+                    if str(ppid) in tracked_pids:
+                        tracked_pids.add(str(pid))
+                        is_tracked = True
+                except Exception:
+                    pass
+                    
+        if not is_tracked:
+            return True
+            
+        children = []
+        def child_callback(ch_hwnd, ch_extra):
+            children.append(ch_hwnd)
+            return True
+            
+        try:
+            win32gui.EnumChildWindows(hwnd, child_callback, None)
+        except Exception:
+            return True
+            
+        for child in children:
+            try:
+                class_name = win32gui.GetClassName(child).lower()
+                length = win32gui.SendMessage(child, win32con.WM_GETTEXTLENGTH, 0, 0)
+                buf = ctypes.create_unicode_buffer(length + 1)
+                win32gui.SendMessage(child, win32con.WM_GETTEXT, length + 1, buf)
+                text = buf.value.lower().strip()
+            except Exception:
+                continue
+                
+            if not text:
+                continue
+                
+            if "button" in class_name:
+                style = win32gui.GetWindowLong(child, win32con.GWL_STYLE)
+                is_checkbox = (style & win32con.BS_CHECKBOX) or (style & win32con.BS_AUTOCHECKBOX)
+                
+                if is_checkbox:
+                    if any(kw in text for kw in ["accept", "agree", "license", "terms", "i accept", "i agree"]):
+                        state = win32gui.SendMessage(child, win32con.BM_GETCHECK, 0, 0)
+                        if state != win32con.BST_CHECKED:
+                            set_checkbox(child)
+                            stream_log("UI_AUTO", "CHECKBOX", f"Automatically checked agreement checkbox: '{buf.value}'")
+                else:
+                    click_keywords = ["next", "install", "i accept", "i agree", "yes", "agree", "accept", "finish", "run", "close", "ok", "forward", "continue"]
+                    ignore_keywords = ["cancel", "exit", "abort", "back", "< back"]
+                    
+                    if any(kw in text for kw in click_keywords) and not any(kw in text for kw in ignore_keywords):
+                        click_button(child)
+                        stream_log("UI_AUTO", "BUTTON_CLICK", f"Automatically clicked button: '{buf.value}'")
+                        
+    except Exception as e:
+        print(f"[-] Error inside enum callback: {e}")
+        
+    return True
+
 # ==========================================
 # MASTER EXECUTION ORCHESTRATOR
 # ==========================================
@@ -1274,8 +1429,14 @@ if __name__ == "__main__":
         help="Analysis monitoring window in seconds (default: %(default)s). "
              "Should be shorter than the host timeout to allow teardown."
     )
+    parser.add_argument(
+        "--mode", type=str, default="detonate",
+        choices=["detonate", "auto-install"],
+        help="Execution mode (detonate or auto-install)."
+    )
     args = parser.parse_args()
     analysis_timeout = args.timeout
+    mode = getattr(args, "mode", "detonate")
 
     stream_log("SYSTEM", "INIT", "Unified Agent Started. Setting up environment...")
     
@@ -1318,11 +1479,34 @@ if __name__ == "__main__":
 
     time.sleep(1) # Let monitoring threads initialize
 
-    # 3. Detonate Malware
-    stream_log("SYSTEM", "EXEC", f"Detonating {TARGET_EXE}")
+    # 3. Detonate Malware / Installer
+    stream_log("SYSTEM", "EXEC", f"Detonating {TARGET_EXE} in mode: {mode}")
+    
+    cmd_args = [TARGET_EXE]
+    installer_type = None
+    silent_flags = []
+    
+    if mode == "auto-install":
+        installer_type, silent_flags = detect_installer_silent_flags(TARGET_EXE)
+        if installer_type:
+            stream_log("SYSTEM", "INFO", f"Detected installer type: {installer_type} with silent flags: {silent_flags}")
+            if installer_type == "MSI":
+                cmd_args = ["msiexec.exe", "/i", TARGET_EXE] + silent_flags
+            else:
+                cmd_args = [TARGET_EXE] + silent_flags
+        else:
+            stream_log("SYSTEM", "INFO", "No standard installer signature detected. Proceeding to standard execution with UI automation fallback.")
+
+    # Start UI Automation thread if mode is auto-install
+    ui_thread = None
+    if mode == "auto-install":
+        ui_auto_active = True
+        ui_thread = threading.Thread(target=ui_automation_loop, name="UI_Automation_Fallback", daemon=True)
+        ui_thread.start()
+
     try:
         proc = subprocess.Popen(
-            [TARGET_EXE],
+            cmd_args,
             shell=False,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
@@ -1330,7 +1514,8 @@ if __name__ == "__main__":
             tracked_pids.add(str(proc.pid))
         stream_log("FR-DYN-04", "PROCESS_ROOT", f"PID: {proc.pid}")
     except Exception as e:
-        stream_log("SYSTEM", "FATAL", f"Failed to execute target: {e}")
+        stream_log("SYSTEM", "FATAL", f"Failed to execute target {cmd_args}: {e}")
+        ui_auto_active = False
         sys.exit(1)
 
     # 5. Analysis Window
@@ -1339,6 +1524,7 @@ if __name__ == "__main__":
 
     # 6. Teardown & Forensics
     stream_log("SYSTEM", "INFO", "Analysis window closed. Halting active monitors...")
+    ui_auto_active = False # Stop UI automation thread
     analysis_active = False # Signal threads to die
     
     # Run memory forensics before killing processes
@@ -1359,6 +1545,6 @@ if __name__ == "__main__":
     time.sleep(1)
     
     # 7. Post-Processing
-    parse_kernel_logs()
+    parse_kernel_logs(mode)
     
     stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")

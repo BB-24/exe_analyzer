@@ -81,6 +81,13 @@ examples:
         help="Run the guest VM sandbox with an interactive GUI window (default). "
              "Allows the analyst to observe the sample executing in real time.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["detonate", "auto-install"],
+        default="detonate",
+        help="Dynamic sandbox execution mode. 'detonate' runs/opens the binary as-is. "
+             "'auto-install' automatically detects installer type to run silently or falls back to UI automation.",
+    )
     return parser
 
 
@@ -149,7 +156,7 @@ class CLIRunner:
     # Public entry-point
     # ------------------------------------------------------------------
 
-    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120, headless=False):
+    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120, headless=False, mode="detonate"):
         import yaml
         from core.pipeline import AnalysisPipeline
 
@@ -160,11 +167,12 @@ class CLIRunner:
         print(f"[*] Static   : {'enabled' if run_static  else 'SKIPPED'}")
         print(f"[*] Dynamic  : {'enabled' if run_dynamic else 'SKIPPED'}")
         print(f"[*] VM Mode  : {'headless (no GUI)' if headless else 'interactive (GUI)'}")
+        print(f"[*] Run Mode : {mode}")
         print(f"[*] Config   : {config_path}")
         if output_dir:
             print(f"[*] Output   : {output_dir}")
         print(self.PHASE)
-
+ 
         config = {}
         try:
             with open(config_path, "r") as fh:
@@ -174,43 +182,43 @@ class CLIRunner:
             print(f"[WARNING] Config file not found: {config_path}. Using built-in defaults.")
         except Exception as exc:
             print(f"[WARNING] Could not parse config: {exc}. Using built-in defaults.")
-
+ 
         if output_dir:
             config.setdefault("system", {})
             config["system"]["reports_dir"] = output_dir
             os.makedirs(output_dir, exist_ok=True)
-
+ 
         # Override extract directory to use system temp directory instead of workspace
         import tempfile
         temp_workspace = os.path.join(tempfile.gettempdir(), "mars_workspace")
         config.setdefault("system", {})
         config["system"]["extract_dir"] = os.path.join(temp_workspace, "extracted")
-
+ 
         pipeline = AnalysisPipeline.__new__(AnalysisPipeline)
         pipeline.config_path = config_path
         pipeline.config      = config
-
+ 
         from core.intake   import IntakeModule
         from core.package  import PackageModule
         from core.static   import StaticModule
         from core.report   import ReportGenerator
         from core.dynamic  import DynamicController
         from core.scoring  import MARSScorer
-
+ 
         pipeline.intake_module  = IntakeModule(config)
         pipeline.package_module = PackageModule(config)
         pipeline.static_module  = StaticModule(config)
         pipeline.reporter       = ReportGenerator(config)
         pipeline.scorer         = MARSScorer()
-
+ 
         try:
             pipeline.dynamic_module = DynamicController(config_path)
         except Exception as exc:
             print(f"[!] Dynamic module unavailable ({exc}). Dynamic analysis will be skipped.")
             pipeline.dynamic_module = None
-
+ 
         pub.subscribe(pipeline._on_analysis_start, "analysis.start")
-
+ 
         pub.sendMessage(
             "analysis.start",
             filepath=filepath,
@@ -218,6 +226,7 @@ class CLIRunner:
             run_dynamic=run_dynamic,
             duration_seconds=duration_seconds,
             headless=headless,
+            mode=mode,
         )
 
         self._done.wait(timeout=duration_seconds + 600)
@@ -315,6 +324,7 @@ def run_cli(args=None):
         output_dir       = opts.output,
         duration_seconds = opts.duration,
         headless         = headless,
+        mode             = opts.mode,
     )
     sys.exit(exit_code)
 

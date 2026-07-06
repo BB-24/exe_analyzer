@@ -130,12 +130,23 @@ def handle_gui_update_table(module: str, data):
     _push_sse(sha256, "table_update", {"module": module, "data": data if isinstance(data, dict) else {}})
 
 
-def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120, headless: bool = False):
+def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120, headless: bool = False, mode: str = "detonate"):
     global active_session_sha256
-    print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type}")
+    print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type} mode={mode}")
 
     with analysis_lock:
-        sess = _get_or_create_session(sha256_hash)
+        # Re-initialize session dict for this sha256 to clear old logs, status and cancellation flags
+        with _sessions_lock:
+            _sessions[sha256_hash.lower()] = {
+                "sha256": sha256_hash.lower(),
+                "filename": filename,
+                "status": "Processing",
+                "logs": [],
+                "results_store": {},
+                "scores": [],
+                "scoring_results": {},
+            }
+        sess = _sessions[sha256_hash.lower()]
         if sess.get("cancelled"):
             print(f"[Backend] Session {sha256_hash} was cancelled while in queue. Skipping.")
             sess["status"] = "Terminated"
@@ -193,6 +204,7 @@ def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, work
                 original_filename=filename,
                 duration_seconds=duration_seconds,
                 headless=headless,
+                mode=mode,
             )
 
             completion_event.wait(timeout=duration_seconds + 600)

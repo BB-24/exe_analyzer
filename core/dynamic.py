@@ -413,12 +413,13 @@ class MalwareSandboxAnalyzer:
         self.cancelled = True
         self.is_running = False
 
-    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False):
+    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False, mode="detonate"):
         self.cancelled = False
         self.target_binary = os.path.abspath(target_binary)
         self.duration_seconds = duration_seconds
         self.config = config or {}
         self.headless = headless  # True → VM runs without GUI window (nogui); False → interactive GUI mode
+        self.mode = mode  # "detonate" or "auto-install"
         self.target_pid = None
         self.process_tree_flat = []
         self.monitored_pids = set()
@@ -1957,12 +1958,14 @@ class MalwareSandboxAnalyzer:
                             guest_agent,
                             "--timeout",
                             str(guest_timeout),
+                            "--mode",
+                            self.mode,
                         ],
                         check=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
-                    self._log("[+] Agent execution command successfully sent to VM.")
+                    self._log(f"[+] Agent execution command successfully sent to VM with mode: {self.mode}")
 
                 except subprocess.CalledProcessError as e:
                     self._log(f"[-] CRITICAL ERROR: vmrun failed to execute the agent. Exit Code: {e.returncode}")
@@ -2007,20 +2010,33 @@ class MalwareSandboxAnalyzer:
                 if self.cancelled or not self.is_running:
                     break
                 time.sleep(1)
+            # Simulation finished — stop background threads immediately
+            self.is_running = False
         else:
-            # The host has NO independent timer. It waits until the guest agent
-            # signals COMPLETE (after analysis window + ProcMon export + CSV parsing).
-            # The serial pipe reader stays open throughout.
-            # Safety cap of 3600s (1 hour) prevents infinite hangs.
+            # The host waits until the guest agent signals COMPLETE via the serial
+            # pipe (tag=SYSTEM, event_type=COMPLETE). The serial pipe reader thread
+            # stays open throughout and sets self.guest_completed = True.
+            #
+            # Safety cap: duration_seconds + 300 s grace period (5 min) to allow
+            # for ProcMon export / CSV parsing overhead inside the guest before
+            # the COMPLETE signal arrives. Falls back gracefully if the signal never
+            # comes (e.g., agent crash or pipe disconnection).
             start_monitor = time.time()
-            max_wait = 3600
-            while self.is_running and (time.time() - start_monitor < max_wait):
+            max_wait = int(self.duration_seconds) + 300
+            while time.time() - start_monitor < max_wait:
                 if self.cancelled:
                     break
                 if getattr(self, "guest_completed", False):
                     self._log("[+] Guest agent reported analysis complete. Proceeding to teardown...")
                     break
                 time.sleep(1)
+            else:
+                self._log(
+                    f"[!] Monitoring timeout reached ({max_wait}s). Guest agent may not have sent COMPLETE signal. "
+                    "Proceeding with teardown using whatever telemetry was collected."
+                )
+            # Stop background threads now — is_running controls the pipe reader loop too
+            self.is_running = False
 
         if self.is_simulation:
             self.simulate_kernel_events()
@@ -2313,9 +2329,13 @@ class MalwareSandboxAnalyzer:
                 subprocess.run(
                     [vmrun_path, "-T", "ws", "stop", vmx_path, "hard"],
                     capture_output=True,
+                    timeout=60,
                 )
-            except Exception:
-                pass
+                self._log("[+] Guest VM stopped.")
+            except subprocess.TimeoutExpired:
+                self._log("[!] vmrun stop timed out after 60s — VM may still be running.")
+            except Exception as stop_err:
+                self._log(f"[!] vmrun stop failed: {stop_err}")
 
         if self.cancelled:
             if not self.is_simulation:
@@ -2324,7 +2344,10 @@ class MalwareSandboxAnalyzer:
                     subprocess.run(
                         [vmrun_path, "-T", "ws", "stop", vmx_path, "hard"],
                         capture_output=True,
+                        timeout=60,
                     )
+                except subprocess.TimeoutExpired:
+                    self._log("[!] vmrun stop timed out during cancellation.")
                 except Exception:
                     pass
             raise RuntimeError("Analysis cancelled by user.")
@@ -2649,7 +2672,7 @@ class DynamicController:
         self.is_analyzing = False
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
 
-    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False):
+    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False, mode="detonate"):
         """Orchestrates dynamic analysis using MalwareSandboxAnalyzer.
         
         Args:
@@ -2659,6 +2682,7 @@ class DynamicController:
                       (vmrun ``nogui`` mode).  If False (default) the VM opens
                       an interactive GUI window so the analyst can observe the
                       sample executing in real time.
+            mode: Sandbox detonation mode ('detonate' or 'auto-install').
         """
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
@@ -2666,7 +2690,7 @@ class DynamicController:
         timeout = duration_seconds if duration_seconds is not None else self.timeout
         run_mode_label = "headless" if headless else "interactive"
         pub.sendMessage(
-            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds ({run_mode_label} mode)..."
+            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds ({run_mode_label} mode, execution: {mode})..."
         )
 
         analyzer = MalwareSandboxAnalyzer(
@@ -2674,6 +2698,7 @@ class DynamicController:
             duration_seconds=timeout,
             config=self.config,
             headless=headless,
+            mode=mode,
         )
         analyzer.execute_analysis()
 

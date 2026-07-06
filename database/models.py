@@ -26,6 +26,9 @@ def handle_analysis_log(sha256_hash, filename=None, status=None, risk_score=None
                 record.filename = filename
             if status is not None:
                 record.status = status
+                # Reset stale risk score if we re-trigger/re-queue the same file
+                if status in ("Queued", "Processing"):
+                    record.risk_score = None
             if risk_score is not None:
                 record.risk_score = risk_score
             record.timestamp = datetime.datetime.now()
