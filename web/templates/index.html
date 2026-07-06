@@ -405,6 +405,41 @@ select option{background:hsl(222 28% 10%);}
               <option value="dynamic_only">Dynamic Sandbox Only</option>
             </select>
 
+            <div id="duration_wrapper">
+              <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.35rem;">Agent Runtime</label>
+              <select id="analysis_duration" style="margin-bottom:.9rem;">
+                <option value="120">2 Minutes &mdash; Standard (120s)</option>
+                <option value="540">9 Minutes &mdash; Thorough (540s)</option>
+                <option value="900">15 Minutes &mdash; Complete (900s)</option>
+              </select>
+            </div>
+
+            <div id="run_mode_wrapper">
+              <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.45rem;">VM Execution Mode</label>
+              <div style="display:flex;gap:.5rem;margin-bottom:.9rem;">
+                <button type="button" id="btn-interactive"
+                  onclick="setRunMode(false)"
+                  style="flex:1;padding:.45rem .5rem;border-radius:.4rem;font-size:.72rem;font-weight:700;cursor:pointer;
+                         background:hsl(var(--accent));color:#fff;border:2px solid hsl(var(--accent));
+                         transition:all .15s;"
+                  title="VM window is visible &mdash; analyst can watch the sample run in real time">
+                  &#x1F5A5; Interactive
+                </button>
+                <button type="button" id="btn-headless"
+                  onclick="setRunMode(true)"
+                  style="flex:1;padding:.45rem .5rem;border-radius:.4rem;font-size:.72rem;font-weight:700;cursor:pointer;
+                         background:transparent;color:hsl(var(--text-dim));border:2px solid hsl(var(--border));
+                         transition:all .15s;"
+                  title="VM runs silently with no display &mdash; ideal for CI / automated pipelines">
+                  &#x1F916; Headless
+                </button>
+              </div>
+              <input type="hidden" id="run_mode_headless" value="false">
+              <p id="run_mode_desc" style="font-size:.67rem;color:hsl(var(--text-dim));margin-top:-.5rem;margin-bottom:.5rem;line-height:1.5;">
+                Interactive: VM window is visible so you can observe detonation live.
+              </p>
+            </div>
+
             <div id="dropZone" class="upload-zone"
                  onclick="document.getElementById('fileInput').click()"
                  ondragover="ev(event,'over')" ondragleave="ev(event,'leave')" ondrop="ev(event,'drop')">
@@ -720,15 +755,53 @@ function ev(e, type) {
 document.getElementById('fileInput').addEventListener('change', () => {
   if (document.getElementById('fileInput').files.length) handleUpload();
 });
+document.getElementById('analysis_type').addEventListener('change', (e) => {
+  const isStatic = e.target.value === 'static_only';
+  document.getElementById('duration_wrapper').style.display  = isStatic ? 'none' : 'block';
+  document.getElementById('run_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
+});
+
+/* ── Run mode toggle ────────────────────────────────────────────── */
+const RUN_MODE_DESCS = {
+  interactive: 'Interactive: VM window is visible so you can observe detonation live.',
+  headless:    'Headless: VM runs silently with no display \u2014 ideal for CI / automated pipelines.'
+};
+function setRunMode(isHeadless) {
+  document.getElementById('run_mode_headless').value = isHeadless ? 'true' : 'false';
+  const btnI = document.getElementById('btn-interactive');
+  const btnH = document.getElementById('btn-headless');
+  const desc = document.getElementById('run_mode_desc');
+  if (isHeadless) {
+    btnH.style.background  = 'hsl(var(--accent))';
+    btnH.style.color       = '#fff';
+    btnH.style.borderColor = 'hsl(var(--accent))';
+    btnI.style.background  = 'transparent';
+    btnI.style.color       = 'hsl(var(--text-dim))';
+    btnI.style.borderColor = 'hsl(var(--border))';
+    desc.textContent = RUN_MODE_DESCS.headless;
+  } else {
+    btnI.style.background  = 'hsl(var(--accent))';
+    btnI.style.color       = '#fff';
+    btnI.style.borderColor = 'hsl(var(--accent))';
+    btnH.style.background  = 'transparent';
+    btnH.style.color       = 'hsl(var(--text-dim))';
+    btnH.style.borderColor = 'hsl(var(--border))';
+    desc.textContent = RUN_MODE_DESCS.interactive;
+  }
+}
 
 /* ── Upload ─────────────────────────────────────────────────────── */
 function handleUpload() {
   const file = document.getElementById('fileInput').files[0];
   if (!file) return;
   const type = document.getElementById('analysis_type').value;
+  const duration = (document.getElementById('analysis_duration') || {value:'120'}).value;
+  const headlessVal = document.getElementById('run_mode_headless').value;
   const fd = new FormData();
   fd.append('file', file);
   fd.append('analysis_type', type);
+  fd.append('analysis_duration', duration);
+  fd.append('headless', headlessVal);
 
   showStatus('Uploading ' + file.name + '…', 'queued');
 
