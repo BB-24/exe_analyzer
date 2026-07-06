@@ -66,6 +66,21 @@ examples:
         default=False,
         help="Suppress per-event log lines; only show phase headers and final result",
     )
+    run_mode = parser.add_mutually_exclusive_group()
+    run_mode.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run the guest VM sandbox without a display window (vmrun nogui). "
+             "Useful for automated / CI pipelines where no human monitor is needed.",
+    )
+    run_mode.add_argument(
+        "--interactive",
+        action="store_true",
+        default=False,
+        help="Run the guest VM sandbox with an interactive GUI window (default). "
+             "Allows the analyst to observe the sample executing in real time.",
+    )
     return parser
 
 
@@ -134,7 +149,7 @@ class CLIRunner:
     # Public entry-point
     # ------------------------------------------------------------------
 
-    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120):
+    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120, headless=False):
         import yaml
         from core.pipeline import AnalysisPipeline
 
@@ -144,6 +159,7 @@ class CLIRunner:
         print(f"[*] Target   : {os.path.abspath(filepath)}")
         print(f"[*] Static   : {'enabled' if run_static  else 'SKIPPED'}")
         print(f"[*] Dynamic  : {'enabled' if run_dynamic else 'SKIPPED'}")
+        print(f"[*] VM Mode  : {'headless (no GUI)' if headless else 'interactive (GUI)'}")
         print(f"[*] Config   : {config_path}")
         if output_dir:
             print(f"[*] Output   : {output_dir}")
@@ -201,6 +217,7 @@ class CLIRunner:
             run_static=run_static,
             run_dynamic=run_dynamic,
             duration_seconds=duration_seconds,
+            headless=headless,
         )
 
         self._done.wait(timeout=duration_seconds + 600)
@@ -287,13 +304,17 @@ def run_cli(args=None):
         sys.exit(2)
 
     runner = CLIRunner(quiet=opts.quiet)
+    # --headless explicitly set → headless; --interactive explicitly set → interactive;
+    # neither flag given → default to interactive (headless=False)
+    headless = opts.headless and not opts.interactive
     exit_code = runner.run(
-        filepath    = opts.file,
-        run_static  = not opts.no_static,
-        run_dynamic = not opts.no_dynamic,
-        config_path = opts.config,
-        output_dir  = opts.output,
+        filepath         = opts.file,
+        run_static       = not opts.no_static,
+        run_dynamic      = not opts.no_dynamic,
+        config_path      = opts.config,
+        output_dir       = opts.output,
         duration_seconds = opts.duration,
+        headless         = headless,
     )
     sys.exit(exit_code)
 

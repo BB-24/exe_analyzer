@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.hypothesis/
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pyenv
+.python-version
+
+# ─────────────────────────────────────────────
+# C / C++ Compiled Artifacts
+# ─────────────────────────────────────────────
+*.obj
+*.o
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# ─────────────────────────────────────────────
+# Database & Analysis Artifacts
+# ─────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# Sample / test binaries (keep rules & source, ignore binaries)
+*.bin
+*.dat
+
+# ─────────────────────────────────────────────
+# Pre-built Wheels
+# ─────────────────────────────────────────────
+wheels/
+
+# ─────────────────────────────────────────────
+# Logs & Temporary Files
+# ─────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ─────────────────────────────────────────────
+# Environment / Secrets
+# ─────────────────────────────────────────────
+.env
+.env.*
+*.env
+secrets.yaml
+secrets.json
+config/secrets.*
+
+# ─────────────────────────────────────────────
+# IDE & Editor
+# ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# ─────────────────────────────────────────────
+# Replit
+# ─────────────────────────────────────────────
+.replit
+replit.nix
+.local/
+.cache/
+.config/
+
+# ─────────────────────────────────────────────
+# Workspace / Sandbox Outputs
+# ─────────────────────────────────────────────
+workspace/
+sandbox_agents/
+
+# ─────────────────────────────────────────────
+# Attached Assets (large binary uploads)
+# ─────────────────────────────────────────────
+attached_assets/
+
+# ─────────────────────────────────────────────
+# YARA Rules cache (keep source rules, ignore compiled)
+# ─────────────────────────────────────────────
+rules/*.yarac
+rules/*.yrc
+
+wheels/
+workspace/

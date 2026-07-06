@@ -413,11 +413,12 @@ class MalwareSandboxAnalyzer:
         self.cancelled = True
         self.is_running = False
 
-    def __init__(self, target_binary, duration_seconds=20, config=None):
+    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False):
         self.cancelled = False
         self.target_binary = os.path.abspath(target_binary)
         self.duration_seconds = duration_seconds
         self.config = config or {}
+        self.headless = headless  # True → VM runs without GUI window (nogui); False → interactive GUI mode
         self.target_pid = None
         self.process_tree_flat = []
         self.monitored_pids = set()
@@ -440,6 +441,9 @@ class MalwareSandboxAnalyzer:
             "files_modified": [],
             "files_deleted": [],
             "files_renamed": [],
+            "folders_created": [],
+            "folders_modified": [],
+            "folders_deleted": [],
         }
         self.persistence_entries = []
         self.resource_series = []
@@ -880,12 +884,24 @@ class MalwareSandboxAnalyzer:
             elif event_type == "FILE_RENAMED":
                 if path not in self.file_data["files_renamed"]:
                     self.file_data["files_renamed"].append(path)
+            elif event_type == "DIR_CREATED":
+                if path not in self.file_data["folders_created"]:
+                    self.file_data["folders_created"].append(path)
+            elif event_type == "DIR_MODIFIED":
+                if path not in self.file_data["folders_modified"]:
+                    self.file_data["folders_modified"].append(path)
+            elif event_type == "DIR_DELETED":
+                if path not in self.file_data["folders_deleted"]:
+                    self.file_data["folders_deleted"].append(path)
 
             self.file_data["total_changes"] = (
                 len(self.file_data["files_created"])
                 + len(self.file_data["files_modified"])
                 + len(self.file_data["files_deleted"])
                 + len(self.file_data["files_renamed"])
+                + len(self.file_data["folders_created"])
+                + len(self.file_data["folders_modified"])
+                + len(self.file_data["folders_deleted"])
             )
             self.rich_telemetry["Filesystem"].append(event_str)
 
@@ -1644,10 +1660,12 @@ class MalwareSandboxAnalyzer:
                 if vm_already_running:
                     self._log("[+] Guest VM is already running. Skipping startup command.")
                 else:
-                    self._log("[*] Starting guest VM sandbox in GUI mode...")
+                    vm_start_mode = "nogui" if self.headless else "gui"
+                    mode_label = "headless (no GUI window)" if self.headless else "interactive GUI"
+                    self._log(f"[*] Starting guest VM sandbox in {mode_label} mode...")
                     try:
                         subprocess.run(
-                            [vmrun_path, "-T", "ws", "start", vmx_path, "gui"],
+                            [vmrun_path, "-T", "ws", "start", vmx_path, vm_start_mode],
                             check=True,
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
@@ -2631,20 +2649,31 @@ class DynamicController:
         self.is_analyzing = False
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
 
-    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None):
-        """Orchestrates dynamic analysis using MalwareSandboxAnalyzer."""
+    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False):
+        """Orchestrates dynamic analysis using MalwareSandboxAnalyzer.
+        
+        Args:
+            target_exe_path: Path to the binary to analyse inside the VM.
+            duration_seconds: Override the analysis window length (seconds).
+            headless: If True the guest VM is started without a display window
+                      (vmrun ``nogui`` mode).  If False (default) the VM opens
+                      an interactive GUI window so the analyst can observe the
+                      sample executing in real time.
+        """
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
 
         timeout = duration_seconds if duration_seconds is not None else self.timeout
+        run_mode_label = "headless" if headless else "interactive"
         pub.sendMessage(
-            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds..."
+            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds ({run_mode_label} mode)..."
         )
 
         analyzer = MalwareSandboxAnalyzer(
             target_binary=target_exe_path,
             duration_seconds=timeout,
             config=self.config,
+            headless=headless,
         )
         analyzer.execute_analysis()
 

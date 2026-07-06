@@ -19,7 +19,7 @@ PIPELINE_EXTRACTED_DIR = os.path.join(TEMP_WORKSPACE, "extracted")
 os.makedirs(QUARANTINE_DIR, exist_ok=True)
 
 
-def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str, duration_seconds: int):
+def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str, duration_seconds: int, headless: bool = False):
     pub.sendMessage("analysis.log", sha256_hash=sha256_hash, filename=filename, status="Queued")
     pub.sendMessage(
         "analysis.trigger",
@@ -28,6 +28,7 @@ def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_ty
         filename=filename,
         workflow_type=workflow_type,
         duration_seconds=duration_seconds,
+        headless=headless,
     )
 
 
@@ -37,6 +38,7 @@ async def upload_file(
     file: UploadFile = File(...),
     analysis_type: str = Form("full_detonation"),
     analysis_duration: int = Form(120),
+    headless: bool = Form(False),
 ):
     try:
         content = await file.read()
@@ -59,6 +61,7 @@ async def upload_file(
             filepath=dest_filepath,
             workflow_type=analysis_type,
             duration_seconds=analysis_duration,
+            headless=headless,
         )
 
         return JSONResponse(
@@ -69,7 +72,8 @@ async def upload_file(
                 "filename": file.filename,
                 "analysis_type": analysis_type,
                 "analysis_duration": analysis_duration,
-                "message": f"File queued for {analysis_type} analysis (Unified Agent Runtime: {analysis_duration}s).",
+                "run_mode": "headless" if headless else "interactive",
+                "message": f"File queued for {analysis_type} analysis (Unified Agent Runtime: {analysis_duration}s, mode: {'headless' if headless else 'interactive'}).",
             },
         )
     except Exception as e:

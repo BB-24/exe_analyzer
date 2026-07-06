@@ -852,7 +852,14 @@ class PDFReportBuilder:
             fs_created_cnt = len(fs_data.get("files_created", []))
             fs_deleted_cnt = len(fs_data.get("files_deleted", []))
             fs_modified_cnt = len(fs_data.get("files_modified", [])) + len(fs_data.get("files_renamed", []))
+            # Folder-specific counts (paths intentionally not surfaced in the report)
+            folder_created_cnt = len(fs_data.get("folders_created", []))
+            folder_modified_cnt = len(fs_data.get("folders_modified", []))
+            folder_deleted_cnt = len(fs_data.get("folders_deleted", []))
         else:
+            folder_created_cnt = 0
+            folder_modified_cnt = 0
+            folder_deleted_cnt = 0
             for ev in telemetry.get("Filesystem", []):
                 ev_upper = str(ev).upper()
                 if "CREATE" in ev_upper or "DROP" in ev_upper:
@@ -870,44 +877,13 @@ class PDFReportBuilder:
         # 2. Folder Changes Made During Installation
         story.append(Paragraph("Folder Changes Made During Installation", self.h2_style))
         story.append(Paragraph(
-            f"Summary of file system activity: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
+            f"Summary of file changes: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
             self.normal
         ))
-        story.append(Spacer(1, 5))
-
-        fs_header = [
-            Paragraph("<b>File / Folder Path</b>", self.normal_bold),
-            Paragraph("<b>Operation</b>", self.normal_bold)
-        ]
-        fs_rows = [fs_header]
-        if "process_tree_generation" in telemetry:
-            fs_data = telemetry.get("file_system_monitoring", {})
-            for f in fs_data.get("files_created", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("CREATED", self.normal)])
-            for f in fs_data.get("files_modified", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("MODIFIED", self.normal)])
-            for f in fs_data.get("files_deleted", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("DELETED", self.normal)])
-            for f in fs_data.get("files_renamed", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("RENAMED", self.normal)])
-        else:
-            for ev in telemetry.get("Filesystem", []):
-                fs_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
-
-        if len(fs_rows) > 1:
-            t_fs = TableFormatter.build_table(
-                data=fs_rows,
-                col_widths=[384, 120],
-                bg_color=self.bg_light,
-                border_color=self.border_color,
-                is_long=True,
-                repeat_rows=1,
-                valign='TOP',
-                padding=6
-            )
-            story.append(t_fs)
-        else:
-            story.append(Paragraph("N/A - No file system changes captured", self.normal))
+        story.append(Paragraph(
+            f"Summary of folder changes: <b>{folder_created_cnt}</b> created, <b>{folder_modified_cnt}</b> modified, and <b>{folder_deleted_cnt}</b> deleted.",
+            self.normal
+        ))
         story.append(Spacer(1, 10))
 
         story.append(Spacer(1, 15))
