@@ -375,6 +375,13 @@ class PDFReportBuilder:
         elif score >= 3.0:
             verdict_color = "#ea580c" # Orange
 
+        # Extract dynamic telemetry early for Executive Summary highlights
+        dyn_results = data.get("Dynamic_Analysis_Results", {})
+        telemetry = {}
+        if dyn_results:
+            target_name = list(dyn_results.keys())[0]
+            telemetry = dyn_results.get(target_name, {})
+
         # ==================================================
         # 1. COVER PAGE
         # ==================================================
@@ -409,50 +416,8 @@ class PDFReportBuilder:
         story.append(PageBreak())
 
         # ==================================================
-        # 2. EXECUTIVE SUMMARY
+        # 1.5 TABLE OF CONTENTS
         # ==================================================
-        story.append(HeadingTracker("EXECUTIVE_SUMMARY", page_map))
-        story.append(Paragraph("1. Executive Summary", self.h1_style))
-
-        # Overall assessment
-        overall_assessment = ""
-        yara_matches = 0
-        static_results = data.get("Static_Analysis_Results", {})
-        for t, res in static_results.items():
-            yara_analysis = res.get("YARA Signatures", {})
-            yara_matches = max(yara_matches, int(yara_analysis.get("Hits", 0) or 0))
-
-        if score >= 7.5:
-            overall_assessment = "The sample exhibits strong malicious characteristics and posed a high level of threat threat indicators during both static and dynamic analysis. Key findings include critical YARA signatures firing and high risk operations. Quarantine and threat hunting across the system is strongly advised."
-        elif score >= 3.0:
-            overall_assessment = "The sample raised indicators of potentially suspicious behavior. Anti-analysis techniques and unexpected imports are present, warranting manual inspection and validation."
-        else:
-            overall_assessment = "No significant threat indicators were identified. The sample appears clean based on static heuristics and signature matches; standard caution is advised."
-
-        summary_table_data = [
-            [Paragraph("<b>Sample Analyzed</b>", self.normal_bold), Paragraph(filename, self.normal)],
-            [Paragraph("<b>Risk Score</b>", self.normal_bold), Paragraph(f"<b>{score * 10.0:.0f}/100</b>", self.normal_bold)],
-            [Paragraph("<b>Verdict</b>", self.normal_bold), Paragraph(f"<font color='{verdict_color}'><b>{verdict}</b></font>", self.normal_bold)],
-            [Paragraph("<b>Total YARA Matches</b>", self.normal_bold), Paragraph(str(yara_matches), self.normal)]
-        ]
-
-        summary_table = TableFormatter.build_table(
-            data=summary_table_data,
-            col_widths=[150, 354],
-            bg_color=self.bg_light,
-            border_color=self.border_color,
-            is_long=False,
-            repeat_rows=0,
-            valign='MIDDLE',
-            padding=6
-        )
-        story.append(summary_table)
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("<b>Overall Assessment:</b>", self.h2_style))
-        story.append(Paragraph(overall_assessment, self.normal))
-        
-        # Custom dots-leaders Table of Contents
-        story.append(Spacer(1, 20))
         story.append(Paragraph("Table of Contents", self.h1_style))
         story.append(Spacer(1, 10))
 
@@ -482,6 +447,180 @@ class PDFReportBuilder:
             padding=4
         )
         story.append(toc_table)
+        story.append(PageBreak())
+
+        # ==================================================
+        # 2. EXECUTIVE SUMMARY
+        # ==================================================
+        story.append(HeadingTracker("EXECUTIVE_SUMMARY", page_map))
+        story.append(Paragraph("1. Executive Summary", self.h1_style))
+
+        # Overall assessment
+        overall_assessment = ""
+        yara_matches = 0
+        static_results = data.get("Static_Analysis_Results", {})
+        for t, res in static_results.items():
+            yara_analysis = res.get("YARA Signatures", {})
+            yara_matches = max(yara_matches, int(yara_analysis.get("Hits", 0) or 0))
+
+        if score >= 7.5:
+            overall_assessment = "The sample exhibits strong malicious characteristics and posed a high level of threat threat indicators during both static and dynamic analysis. Key findings include critical YARA signatures firing and high risk operations. Quarantine and threat hunting across the system is strongly advised."
+        elif score >= 3.0:
+            overall_assessment = "The sample raised indicators of potentially suspicious behavior. Anti-analysis techniques and unexpected imports are present, warranting manual inspection and validation."
+        else:
+            overall_assessment = "No significant threat indicators were identified. The sample appears clean based on static heuristics and signature matches; standard caution is advised."
+
+        # Dynamic helper functions for contextual explanations
+        def get_yara_desc(rule):
+            rl = rule.lower()
+            if "process_injection" in rl: return "Process memory injection vector detected"
+            if "anti_analysis" in rl or "debugging" in rl: return "Anti-analysis/debugging check matched"
+            if "credential_dumping" in rl or "mimikatz" in rl: return "Credential stealing/memory dumping signature"
+            if "keylogging" in rl: return "Keypress logging/spyware signature"
+            if "evasion" in rl or "hash" in rl: return "API hashing or defense evasion signature"
+            if "obfuscation" in rl or "crypto" in rl: return "Obfuscation or crypto constants matched"
+            if "dropper" in rl or "embedded" in rl: return "Installer or embedded executable payload signature"
+            if "rmm" in rl or "abuse" in rl: return "Potential remote monitoring/administration tool abuse"
+            return "Suspicious heuristic matches security rule"
+
+        api_explanations = {
+            "VirtualAllocEx": "Remote memory allocation (process injection)",
+            "WriteProcessMemory": "Memory write capability (process injection)",
+            "CreateRemoteThread": "Thread execution in remote process (code execution)",
+            "IsDebuggerPresent": "Local debugger detection check (anti-analysis)",
+            "CheckRemoteDebuggerPresent": "Remote debugger detection check (anti-analysis)",
+            "CreateProcessW": "Process spawning control (child process creation)",
+            "CreateProcessA": "Process spawning control (child process creation)",
+            "ShellExecuteW": "Command shell execution",
+            "ShellExecuteA": "Command shell execution",
+            "WinExec": "Command execution",
+            "GetProcAddress": "Dynamic API loading behavior",
+            "LoadLibraryA": "Dynamic module loading behavior",
+            "LoadLibraryW": "Dynamic module loading behavior",
+        }
+
+        # Extract and compile all unusual static & dynamic indicators
+        yara_rules = []
+        for t, res in static_results.items():
+            yara_analysis = res.get("YARA Signatures", {})
+            if yara_analysis:
+                rules_val = yara_analysis.get("Matched Rules") or yara_analysis.get("Rules")
+                if isinstance(rules_val, list):
+                    yara_rules.extend(rules_val)
+                elif isinstance(rules_val, str) and rules_val != "N/A":
+                    yara_rules.extend([x.strip() for x in rules_val.split(",") if x.strip()])
+
+        suspicious_imps = []
+        for t, res in static_results.items():
+            imp_data = res.get("Suspicious Imports", {})
+            if imp_data:
+                apis = imp_data.get("APIs")
+                if isinstance(apis, list):
+                    suspicious_imps.extend(apis)
+                elif isinstance(apis, str) and apis != "N/A":
+                    suspicious_imps.extend([x.strip() for x in apis.split(",") if x.strip()])
+
+        unusual_sects = []
+        for t, res in static_results.items():
+            sections_data = res.get("Sections", {})
+            for sect_name, info in sections_data.items():
+                perms = ""
+                entropy = ""
+                info_str = str(info)
+                p_match = re.search(r"Perms:\s*([^\s|]+)", info_str)
+                if p_match:
+                    perms = p_match.group(1)
+                e_match = re.search(r"Entropy:\s*([^\s|]+)", info_str)
+                if e_match:
+                    entropy = e_match.group(1)
+                
+                is_unusual_perms = 'W' in perms.upper() and 'E' in perms.upper()
+                is_unusual_entropy = False
+                try:
+                    is_unusual_entropy = float(entropy) > 7.0
+                except ValueError:
+                    pass
+                if is_unusual_perms or is_unusual_entropy:
+                    clean_name = sect_name.replace("Section:", "").strip()
+                    reason = []
+                    if is_unusual_perms: reason.append("Writable + Executable perms (RWE)")
+                    if is_unusual_entropy: reason.append("High entropy (potential obfuscation/packing)")
+                    unusual_sects.append(f"• <b>{clean_name}</b>: {', and '.join(reason)}")
+
+        dll_info = telemetry.get("dll_signature_monitoring", {})
+        unsigned_dlls = [d.get("dll_name") for d in dll_info.get("details", []) if d.get("signature_status") == "UNSIGNED"]
+
+        pers_data = telemetry.get("persistence_analysis", {})
+        high_conf = pers_data.get("high_confidence_persistence", [])
+
+        net_info = telemetry.get("network_communication_analysis", {})
+        net_details = net_info.get("details", [])
+        active_domains = []
+        if net_details:
+            active_domains = list(set([conn.get("scapy_action") or conn.get("domain") for conn in net_details if conn.get("scapy_action") or conn.get("domain")]))
+
+        # Format and append findings with beautiful headers and line splits
+        has_findings = bool(yara_rules or suspicious_imps or unusual_sects or unsigned_dlls or high_conf or active_domains)
+        if has_findings:
+            overall_assessment += "<br/><br/><font size='10'><b>[!] UNUSUAL FINDINGS SUMMARY (VERIFY RECOMMENDED)</b></font>"
+            overall_assessment += "<br/><font color='#cbd5e1'>--------------------------------------------------------------------------------</font>"
+
+            if yara_rules:
+                overall_assessment += "<br/><br/><b>YARA Signatures Triggered:</b>"
+                for r in yara_rules:
+                    desc = get_yara_desc(r)
+                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{r}</b></font> &mdash; {desc}"
+
+            if suspicious_imps:
+                overall_assessment += "<br/><br/><b>Suspicious API Imports:</b>"
+                for api in suspicious_imps:
+                    desc = api_explanations.get(api, "Suspicious Win32 API import capability")
+                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{api}</b></font> &mdash; {desc}"
+
+            if unusual_sects:
+                overall_assessment += "<br/><br/><b>Suspicious PE Sections:</b>"
+                for sect_str in unusual_sects:
+                    overall_assessment += f"<br/><font color='#dc2626'>{sect_str}</font>"
+
+            if unsigned_dlls:
+                overall_assessment += "<br/><br/><b>Unsigned DLLs Loaded during Sandbox Execution:</b>"
+                for dll in unsigned_dlls:
+                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{dll}</b></font> &mdash; Missing valid code signature"
+
+            if high_conf:
+                overall_assessment += "<br/><br/><b>Persistence Established:</b>"
+                for item in high_conf:
+                    mech = item.get('mechanism', 'N/A')
+                    cat = item.get('category', 'N/A')
+                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{mech}</b></font> &mdash; Category: {cat}"
+
+            if active_domains:
+                overall_assessment += "<br/><br/><b>Outbound Network Connections:</b>"
+                for dom in active_domains[:10]:
+                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{dom}</b></font> &mdash; Connection request logged"
+
+        summary_table_data = [
+            [Paragraph("<b>Sample Analyzed</b>", self.normal_bold), Paragraph(filename, self.normal)],
+            [Paragraph("<b>Risk Score</b>", self.normal_bold), Paragraph(f"<b>{score * 10.0:.0f}/100</b>", self.normal_bold)],
+            [Paragraph("<b>Verdict</b>", self.normal_bold), Paragraph(f"<font color='{verdict_color}'><b>{verdict}</b></font>", self.normal_bold)],
+            [Paragraph("<b>Total YARA Matches</b>", self.normal_bold), Paragraph(str(yara_matches), self.normal)]
+        ]
+
+        summary_table = TableFormatter.build_table(
+            data=summary_table_data,
+            col_widths=[150, 354],
+            bg_color=self.bg_light,
+            border_color=self.border_color,
+            is_long=False,
+            repeat_rows=0,
+            valign='MIDDLE',
+            padding=6
+        )
+        story.append(summary_table)
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("<b>Overall Assessment:</b>", self.h2_style))
+        story.append(Paragraph(overall_assessment, self.normal))
+        
         story.append(PageBreak())
 
         # ==================================================
@@ -578,10 +717,29 @@ class PDFReportBuilder:
                 e_match = re.search(r"Entropy:\s*([^\s|]+)", info_str)
                 if e_match:
                     entropy = e_match.group(1)
+                
+                is_unusual_perms = 'W' in perms.upper() and 'E' in perms.upper()
+                is_unusual_entropy = False
+                try:
+                    is_unusual_entropy = float(entropy) > 7.0
+                except ValueError:
+                    pass
+                
+                perms_styled = perms
+                entropy_styled = entropy
+                sect_name_styled = sect_name.replace("Section:", "").strip()
+                
+                if is_unusual_perms:
+                    perms_styled = f"<font color='#dc2626'><b>[!] {perms}</b></font>"
+                    sect_name_styled = f"<font color='#dc2626'><b>{sect_name_styled}</b></font>"
+                if is_unusual_entropy:
+                    entropy_styled = f"<font color='#dc2626'><b>[!] {entropy}</b></font>"
+                    sect_name_styled = f"<font color='#dc2626'><b>{sect_name_styled}</b></font>"
+
                 sect_rows.append([
-                    Paragraph(sect_name.replace("Section:", "").strip(), self.normal),
-                    Paragraph(perms, self.code_style),
-                    Paragraph(entropy, self.code_style)
+                    Paragraph(sect_name_styled, self.normal),
+                    Paragraph(perms_styled, self.code_style),
+                    Paragraph(entropy_styled, self.code_style)
                 ])
             if len(sect_rows) > 1:
                 t_sect = TableFormatter.build_table(
@@ -643,7 +801,12 @@ class PDFReportBuilder:
             story.append(Paragraph("Suspicious Imports", self.h2_style))
             imp_data = file_data.get("Suspicious Imports", {})
             if imp_data:
-                imp_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in imp_data.items()]
+                imp_rows = []
+                for k, v in imp_data.items():
+                    imp_rows.append([
+                        Paragraph(f"<font color='#dc2626'><b>{k}</b></font>", self.normal_bold),
+                        Paragraph(str(v), self.normal)
+                    ])
                 t_imp = TableFormatter.build_table(
                     data=imp_rows,
                     col_widths=[150, 354],
@@ -693,10 +856,15 @@ class PDFReportBuilder:
                         continue
                     if isinstance(v, list):
                         v_clean = [str(x) for x in v if not ("@" in str(x) and "." in str(x))]
-                        v_str = ", ".join(v_clean)
+                        if len(v_clean) > 5:
+                            for idx, val in enumerate(v_clean):
+                                art_rows.append([Paragraph(f"<b>{k} ({idx+1})</b>", self.normal_bold), Paragraph(val, self.code_style)])
+                        else:
+                            v_str = ", ".join(v_clean)
+                            art_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(v_str, self.code_style)])
                     else:
                         v_str = str(v)
-                    art_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(v_str, self.code_style)])
+                        art_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(v_str, self.code_style)])
                 t_art = TableFormatter.build_table(
                     data=art_rows,
                     col_widths=[150, 354],
@@ -716,7 +884,15 @@ class PDFReportBuilder:
             story.append(Paragraph("YARA Signatures", self.h2_style))
             yara_data = file_data.get("YARA Signatures", {})
             if yara_data:
-                yara_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in yara_data.items()]
+                yara_rows = []
+                for k, v in yara_data.items():
+                    val_str = str(v)
+                    if k.lower() in ("rules", "hits") and val_str != "0" and val_str != "N/A":
+                        val_str = f"<font color='#dc2626'><b>{val_str}</b></font>"
+                    yara_rows.append([
+                        Paragraph(f"<b>{k}</b>", self.normal_bold),
+                        Paragraph(val_str, self.normal)
+                    ])
                 t_yara = TableFormatter.build_table(
                     data=yara_rows,
                     col_widths=[150, 354],
@@ -815,13 +991,21 @@ class PDFReportBuilder:
         if "process_tree_generation" in telemetry:
             reg_data = telemetry.get("registry_monitoring", {})
             for k in reg_data.get("keys_deleted", []):
-                reg_rows.append([Paragraph(k, self.code_style), Paragraph("KEY DELETED", self.normal)])
+                reg_rows.append([Paragraph(f"<font color='#dc2626'>{k}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>[!] KEY DELETED</b></font>", self.normal)])
             for v in reg_data.get("values_deleted", []):
-                reg_rows.append([Paragraph(v, self.code_style), Paragraph("VALUE DELETED", self.normal)])
+                reg_rows.append([Paragraph(f"<font color='#dc2626'>{v}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>[!] VALUE DELETED</b></font>", self.normal)])
             for val in reg_data.get("values_added", []):
-                reg_rows.append([Paragraph(val.get("path", ""), self.code_style), Paragraph(f"VALUE ADDED ({val.get('type')})", self.normal)])
+                path = val.get("path", "")
+                is_sus = any(x in path.lower() for x in ["run", "runonce", "startup", "services", "winlogon"])
+                p_style = f"<font color='#dc2626'><b>[!] {path}</b></font>" if is_sus else path
+                op_style = f"<font color='#dc2626'><b>VALUE ADDED ({val.get('type')})</b></font>" if is_sus else f"VALUE ADDED ({val.get('type')})"
+                reg_rows.append([Paragraph(p_style, self.code_style), Paragraph(op_style, self.normal)])
             for val in reg_data.get("values_modified", []):
-                reg_rows.append([Paragraph(val.get("path", ""), self.code_style), Paragraph(f"VALUE MODIFIED ({val.get('type')})", self.normal)])
+                path = val.get("path", "")
+                is_sus = any(x in path.lower() for x in ["run", "runonce", "startup", "services", "winlogon"])
+                p_style = f"<font color='#dc2626'><b>[!] {path}</b></font>" if is_sus else path
+                op_style = f"<font color='#dc2626'><b>VALUE MODIFIED ({val.get('type')})</b></font>" if is_sus else f"VALUE MODIFIED ({val.get('type')})"
+                reg_rows.append([Paragraph(p_style, self.code_style), Paragraph(op_style, self.normal)])
         else:
             for ev in telemetry.get("Registry", []):
                 reg_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
@@ -852,14 +1036,7 @@ class PDFReportBuilder:
             fs_created_cnt = len(fs_data.get("files_created", []))
             fs_deleted_cnt = len(fs_data.get("files_deleted", []))
             fs_modified_cnt = len(fs_data.get("files_modified", [])) + len(fs_data.get("files_renamed", []))
-            # Folder-specific counts (paths intentionally not surfaced in the report)
-            folder_created_cnt = len(fs_data.get("folders_created", []))
-            folder_modified_cnt = len(fs_data.get("folders_modified", []))
-            folder_deleted_cnt = len(fs_data.get("folders_deleted", []))
         else:
-            folder_created_cnt = 0
-            folder_modified_cnt = 0
-            folder_deleted_cnt = 0
             for ev in telemetry.get("Filesystem", []):
                 ev_upper = str(ev).upper()
                 if "CREATE" in ev_upper or "DROP" in ev_upper:
@@ -877,13 +1054,55 @@ class PDFReportBuilder:
         # 2. Folder Changes Made During Installation
         story.append(Paragraph("Folder Changes Made During Installation", self.h2_style))
         story.append(Paragraph(
-            f"Summary of file changes: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
+            f"Summary of file system activity: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
             self.normal
         ))
-        story.append(Paragraph(
-            f"Summary of folder changes: <b>{folder_created_cnt}</b> created, <b>{folder_modified_cnt}</b> modified, and <b>{folder_deleted_cnt}</b> deleted.",
-            self.normal
-        ))
+        story.append(Spacer(1, 5))
+
+        fs_header = [
+            Paragraph("<b>File / Folder Path</b>", self.normal_bold),
+            Paragraph("<b>Operation</b>", self.normal_bold)
+        ]
+        fs_rows = [fs_header]
+        if "process_tree_generation" in telemetry:
+            fs_data = telemetry.get("file_system_monitoring", {})
+            sus_fs_keywords = ["temp", "appdata", "roaming", "\\tmp\\", "programdata", "startup", "system32", "syswow64"]
+            sus_ext = [".exe", ".dll", ".bat", ".ps1", ".vbs", ".cmd", ".scr", ".pif"]
+            def _is_sus_path(p):
+                pl = p.lower()
+                return any(k in pl for k in sus_fs_keywords) or any(pl.endswith(e) for e in sus_ext)
+            for f in fs_data.get("files_created", []):
+                if _is_sus_path(f):
+                    fs_rows.append([Paragraph(f"<font color='#dc2626'><b>[!] {f}</b></font>", self.code_style), Paragraph("<font color='#dc2626'><b>CREATED</b></font>", self.normal)])
+                else:
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("CREATED", self.normal)])
+            for f in fs_data.get("files_modified", []):
+                if _is_sus_path(f):
+                    fs_rows.append([Paragraph(f"<font color='#dc2626'><b>[!] {f}</b></font>", self.code_style), Paragraph("<font color='#dc2626'><b>MODIFIED</b></font>", self.normal)])
+                else:
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("MODIFIED", self.normal)])
+            for f in fs_data.get("files_deleted", []):
+                fs_rows.append([Paragraph(f"<font color='#dc2626'>{f}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>DELETED</b></font>", self.normal)])
+            for f in fs_data.get("files_renamed", []):
+                fs_rows.append([Paragraph(f, self.code_style), Paragraph("RENAMED", self.normal)])
+        else:
+            for ev in telemetry.get("Filesystem", []):
+                fs_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
+
+        if len(fs_rows) > 1:
+            t_fs = TableFormatter.build_table(
+                data=fs_rows,
+                col_widths=[384, 120],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
+            story.append(t_fs)
+        else:
+            story.append(Paragraph("N/A - No file system changes captured", self.normal))
         story.append(Spacer(1, 10))
 
         story.append(Spacer(1, 15))
@@ -1144,19 +1363,24 @@ class PDFReportBuilder:
             for dll in dll_details:
                 sig_status = dll.get("signature_status", "UNKNOWN")
                 sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
-                risk_text = ", ".join(dll.get("risk_indicators", [])) or "None"
+                risk_indicators = dll.get("risk_indicators", [])
+                risk_text = ", ".join(risk_indicators) if risk_indicators else "None"
+                risk_styled = f"<font color='#dc2626'><b>{risk_text}</b></font>" if risk_indicators else "None"
 
                 dll_name = dll.get("dll_name", "Unknown")
+                dll_path = dll.get("dll_path", "N/A")
                 if sig_status == "UNSIGNED":
                     name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                    path_p = Paragraph(f"<font color='#dc2626'>{dll_path}</font>", self.code_style)
                 else:
                     name_p = Paragraph(dll_name, self.normal)
+                    path_p = Paragraph(dll_path, self.code_style)
 
                 dll_table_data.append([
                     name_p,
-                    Paragraph(dll.get("dll_path", "N/A"), self.code_style),
+                    path_p,
                     Paragraph(f"<font color='{sig_color}'><b>{sig_status}</b></font>", self.normal),
-                    Paragraph(risk_text, self.normal),
+                    Paragraph(risk_styled, self.normal),
                 ])
 
             dll_table = TableFormatter.build_table(
@@ -1226,18 +1450,31 @@ class PDFReportBuilder:
                 Paragraph("<b>Activity / Domain / Command</b>", self.normal_bold),
             ]]
             
+            sus_ports = {80, 443, 8080, 8443, 53, 21, 22, 23, 25, 110, 143, 3389, 445}
             for conn in net_details:
                 proto = conn.get("protocol", "N/A")
                 port = str(conn.get("dst_port", "N/A"))
                 direct = conn.get("direction", "OUTBOUND")
                 action = conn.get("scapy_action", "") or conn.get("domain", "") or "N/A"
-                
-                net_table_data.append([
-                    Paragraph(proto, self.normal),
-                    Paragraph(port, self.normal),
-                    Paragraph(direct, self.normal),
-                    Paragraph(action, self.code_style),
-                ])
+
+                is_outbound = direct.upper() == "OUTBOUND"
+                port_known = str(port).isdigit() and int(port) in sus_ports
+                is_suspicious_net = is_outbound
+
+                if is_suspicious_net:
+                    net_table_data.append([
+                        Paragraph(f"<font color='#dc2626'><b>{proto}</b></font>", self.normal),
+                        Paragraph(f"<font color='#dc2626'><b>{port}</b></font>", self.normal),
+                        Paragraph(f"<font color='#dc2626'><b>{direct}</b></font>", self.normal),
+                        Paragraph(f"<font color='#dc2626'><b>[!] {action}</b></font>", self.code_style),
+                    ])
+                else:
+                    net_table_data.append([
+                        Paragraph(proto, self.normal),
+                        Paragraph(port, self.normal),
+                        Paragraph(direct, self.normal),
+                        Paragraph(action, self.code_style),
+                    ])
                 
             net_table = TableFormatter.build_table(
                 data=net_table_data,
