@@ -66,21 +66,6 @@ examples:
         default=False,
         help="Suppress per-event log lines; only show phase headers and final result",
     )
-    run_mode = parser.add_mutually_exclusive_group()
-    run_mode.add_argument(
-        "--headless",
-        action="store_true",
-        default=False,
-        help="Run the guest VM sandbox without a display window (vmrun nogui). "
-             "Useful for automated / CI pipelines where no human monitor is needed.",
-    )
-    run_mode.add_argument(
-        "--interactive",
-        action="store_true",
-        default=False,
-        help="Run the guest VM sandbox with an interactive GUI window (default). "
-             "Allows the analyst to observe the sample executing in real time.",
-    )
     parser.add_argument(
         "--mode",
         choices=["detonate", "auto-install"],
@@ -156,7 +141,7 @@ class CLIRunner:
     # Public entry-point
     # ------------------------------------------------------------------
 
-    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120, headless=False, mode="detonate"):
+    def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120, mode="detonate"):
         import yaml
         from core.pipeline import AnalysisPipeline
 
@@ -166,7 +151,7 @@ class CLIRunner:
         print(f"[*] Target   : {os.path.abspath(filepath)}")
         print(f"[*] Static   : {'enabled' if run_static  else 'SKIPPED'}")
         print(f"[*] Dynamic  : {'enabled' if run_dynamic else 'SKIPPED'}")
-        print(f"[*] VM Mode  : {'headless (no GUI)' if headless else 'interactive (GUI)'}")
+        print(f"[*] VM Mode  : interactive (GUI)")
         print(f"[*] Run Mode : {mode}")
         print(f"[*] Config   : {config_path}")
         if output_dir:
@@ -225,7 +210,7 @@ class CLIRunner:
             run_static=run_static,
             run_dynamic=run_dynamic,
             duration_seconds=duration_seconds,
-            headless=headless,
+            headless=False,
             mode=mode,
         )
 
@@ -313,9 +298,7 @@ def run_cli(args=None):
         sys.exit(2)
 
     runner = CLIRunner(quiet=opts.quiet)
-    # --headless explicitly set → headless; --interactive explicitly set → interactive;
-    # neither flag given → default to interactive (headless=False)
-    headless = opts.headless and not opts.interactive
+    # VM always runs in interactive GUI mode
     exit_code = runner.run(
         filepath         = opts.file,
         run_static       = not opts.no_static,
@@ -323,7 +306,6 @@ def run_cli(args=None):
         config_path      = opts.config,
         output_dir       = opts.output,
         duration_seconds = opts.duration,
-        headless         = headless,
         mode             = opts.mode,
     )
     sys.exit(exit_code)

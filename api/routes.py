@@ -19,7 +19,7 @@ PIPELINE_EXTRACTED_DIR = os.path.join(TEMP_WORKSPACE, "extracted")
 os.makedirs(QUARANTINE_DIR, exist_ok=True)
 
 
-def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str, duration_seconds: int, headless: bool = False, mode: str = "detonate"):
+def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str, duration_seconds: int, mode: str = "detonate"):
     pub.sendMessage("analysis.log", sha256_hash=sha256_hash, filename=filename, status="Queued")
     pub.sendMessage(
         "analysis.trigger",
@@ -28,7 +28,7 @@ def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_ty
         filename=filename,
         workflow_type=workflow_type,
         duration_seconds=duration_seconds,
-        headless=headless,
+        headless=False,
         mode=mode,
     )
 
@@ -39,7 +39,6 @@ async def upload_file(
     file: UploadFile = File(...),
     analysis_type: str = Form("full_detonation"),
     analysis_duration: int = Form(120),
-    headless: bool = Form(False),
     analysis_mode: str = Form("detonate"),
 ):
     try:
@@ -63,7 +62,6 @@ async def upload_file(
             filepath=dest_filepath,
             workflow_type=analysis_type,
             duration_seconds=analysis_duration,
-            headless=headless,
             mode=analysis_mode,
         )
 
@@ -75,9 +73,9 @@ async def upload_file(
                 "filename": file.filename,
                 "analysis_type": analysis_type,
                 "analysis_duration": analysis_duration,
-                "run_mode": "headless" if headless else "interactive",
+                "run_mode": "interactive",
                 "analysis_mode": analysis_mode,
-                "message": f"File queued for {analysis_type} analysis (Unified Agent Runtime: {analysis_duration}s, mode: {'headless' if headless else 'interactive'}, execution: {analysis_mode}).",
+                "message": f"File queued for {analysis_type} analysis (Unified Agent Runtime: {analysis_duration}s, mode: interactive, execution: {analysis_mode}).",
             },
         )
     except Exception as e:

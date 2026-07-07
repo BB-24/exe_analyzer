@@ -418,7 +418,7 @@ class MalwareSandboxAnalyzer:
         self.target_binary = os.path.abspath(target_binary)
         self.duration_seconds = duration_seconds
         self.config = config or {}
-        self.headless = headless  # True → VM runs without GUI window (nogui); False → interactive GUI mode
+        self.headless = False  # VM always runs in interactive GUI mode
         self.mode = mode  # "detonate" or "auto-install"
         self.target_pid = None
         self.process_tree_flat = []
@@ -1661,8 +1661,8 @@ class MalwareSandboxAnalyzer:
                 if vm_already_running:
                     self._log("[+] Guest VM is already running. Skipping startup command.")
                 else:
-                    vm_start_mode = "nogui" if self.headless else "gui"
-                    mode_label = "headless (no GUI window)" if self.headless else "interactive GUI"
+                    vm_start_mode = "gui"  # VM always runs in interactive GUI mode
+                    mode_label = "interactive GUI"
                     self._log(f"[*] Starting guest VM sandbox in {mode_label} mode...")
                     try:
                         subprocess.run(
@@ -1693,10 +1693,10 @@ class MalwareSandboxAnalyzer:
                             text=True,
                             timeout=10,
                         )
-                        if "running" in res.stdout.lower() and res.returncode == 0:
+                        if ("running" in res.stdout.lower() or "installed" in res.stdout.lower()) and res.returncode == 0:
                             tools_running = True
                             self._log(
-                                "[+] VMware Tools is running. Proceeding with analysis."
+                                "[+] VMware Tools is running/installed. Proceeding with analysis."
                             )
                             break
                     except subprocess.TimeoutExpired:
@@ -1867,7 +1867,7 @@ class MalwareSandboxAnalyzer:
                             "import serial, psutil, watchdog, win32api, wmi",
                         ],
                         capture_output=True,
-                        timeout=10,
+                        timeout=30,
                     )
                     if dep_check.returncode == 0:
                         dep_satisfied = True
@@ -1892,7 +1892,6 @@ class MalwareSandboxAnalyzer:
                                 guest_pass,
                                 "runProgramInGuest",
                                 vmx_path,
-                                "-activeWindow",
                                 guest_python,
                                 "-m",
                                 "pip",
@@ -1910,7 +1909,7 @@ class MalwareSandboxAnalyzer:
                                 "wmi",
                             ],
                             capture_output=True,
-                            timeout=60,
+                            timeout=120,
                         )
                         self._log(
                             "[+] Guest agent dependency installation complete."
@@ -2021,22 +2020,14 @@ class MalwareSandboxAnalyzer:
             # for ProcMon export / CSV parsing overhead inside the guest before
             # the COMPLETE signal arrives. Falls back gracefully if the signal never
             # comes (e.g., agent crash or pipe disconnection).
-            start_monitor = time.time()
-            max_wait = int(self.duration_seconds) + 300
-            while time.time() - start_monitor < max_wait:
+            self._log("[*] Waiting indefinitely for the guest COMPLETE signal before starting teardown...")
+            while True:
                 if self.cancelled:
                     break
                 if getattr(self, "guest_completed", False):
                     self._log("[+] Guest agent reported analysis complete. Proceeding to teardown...")
                     break
                 time.sleep(1)
-            else:
-                self._log(
-                    f"[!] Monitoring timeout reached ({max_wait}s). Guest agent may not have sent COMPLETE signal. "
-                    "Proceeding with teardown using whatever telemetry was collected."
-                )
-            # Stop background threads now — is_running controls the pipe reader loop too
-            self.is_running = False
 
         if self.is_simulation:
             self.simulate_kernel_events()
@@ -2079,7 +2070,6 @@ class MalwareSandboxAnalyzer:
                                 "runProgramInGuest",
                                 vmx_path,
                                 "-noWait",
-                                "-activeWindow",
                                 "C:\\Windows\\System32\\taskkill.exe",
                                 "/F",
                                 "/IM",
@@ -2678,26 +2668,21 @@ class DynamicController:
         Args:
             target_exe_path: Path to the binary to analyse inside the VM.
             duration_seconds: Override the analysis window length (seconds).
-            headless: If True the guest VM is started without a display window
-                      (vmrun ``nogui`` mode).  If False (default) the VM opens
-                      an interactive GUI window so the analyst can observe the
-                      sample executing in real time.
             mode: Sandbox detonation mode ('detonate' or 'auto-install').
         """
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
 
         timeout = duration_seconds if duration_seconds is not None else self.timeout
-        run_mode_label = "headless" if headless else "interactive"
         pub.sendMessage(
-            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds ({run_mode_label} mode, execution: {mode})..."
+            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds (interactive GUI mode, execution: {mode})..."
         )
 
         analyzer = MalwareSandboxAnalyzer(
             target_binary=target_exe_path,
             duration_seconds=timeout,
             config=self.config,
-            headless=headless,
+            headless=False,
             mode=mode,
         )
         analyzer.execute_analysis()

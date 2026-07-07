@@ -203,7 +203,7 @@ def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, work
                 run_dynamic=run_dynamic,
                 original_filename=filename,
                 duration_seconds=duration_seconds,
-                headless=headless,
+                headless=False,
                 mode=mode,
             )
 

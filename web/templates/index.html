@@ -414,34 +414,10 @@ select option{background:hsl(222 28% 10%);}
               </select>
             </div>
 
-            <div id="run_mode_wrapper">
-              <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.45rem;">VM Execution Mode</label>
-              <div style="display:flex;gap:.5rem;margin-bottom:.9rem;">
-                <button type="button" id="btn-interactive"
-                  onclick="setRunMode(false)"
-                  style="flex:1;padding:.45rem .5rem;border-radius:.4rem;font-size:.72rem;font-weight:700;cursor:pointer;
-                         background:hsl(var(--accent));color:#fff;border:2px solid hsl(var(--accent));
-                         transition:all .15s;"
-                  title="VM window is visible &mdash; analyst can watch the sample run in real time">
-                  &#x1F5A5; Interactive
-                </button>
-                <button type="button" id="btn-headless"
-                  onclick="setRunMode(true)"
-                  style="flex:1;padding:.45rem .5rem;border-radius:.4rem;font-size:.72rem;font-weight:700;cursor:pointer;
-                         background:transparent;color:hsl(var(--text-dim));border:2px solid hsl(var(--border));
-                         transition:all .15s;"
-                  title="VM runs silently with no display &mdash; ideal for CI / automated pipelines">
-                  &#x1F916; Headless
-                </button>
-              </div>
-              <input type="hidden" id="run_mode_headless" value="false">
-              <p id="run_mode_desc" style="font-size:.67rem;color:hsl(var(--text-dim));margin-top:-.5rem;margin-bottom:.5rem;line-height:1.5;">
-                Interactive: VM window is visible so you can observe detonation live.
-              </p>
-            </div>
+
 
             <div id="detonation_mode_wrapper">
-              <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.45rem;">Sandbox Detonation Mode</label>
+              <label id="detonation_mode_label" style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.45rem;">Sandbox Detonation Mode</label>
               <div style="display:flex;gap:.5rem;margin-bottom:.9rem;">
                 <button type="button" id="btn-mode-detonate"
                   onclick="setDetonationMode('detonate')"
@@ -464,6 +440,7 @@ select option{background:hsl(222 28% 10%);}
               <p id="detonation_mode_desc" style="font-size:.67rem;color:hsl(var(--text-dim));margin-top:-.5rem;margin-bottom:.5rem;line-height:1.5;">
                 Detonate: Run the executable directly as a standalone program.
               </p>
+
             </div>
 
             <div id="dropZone" class="upload-zone"
@@ -471,9 +448,32 @@ select option{background:hsl(222 28% 10%);}
                  ondragover="ev(event,'over')" ondragleave="ev(event,'leave')" ondrop="ev(event,'drop')">
               <span class="uz-icon">⚡</span>
               <div style="font-size:.88rem;font-weight:700;color:hsl(var(--text-primary));margin-bottom:.3rem;">Drag &amp; Drop Sample</div>
-              <div style="font-size:.72rem;color:hsl(var(--text-dim));">or click to browse files</div>
+              <div style="font-size:.72rem;color:hsl(var(--text-dim));">or click to browse · file appears below</div>
               <input type="file" id="fileInput" style="display:none;">
             </div>
+
+            <!-- Selected file indicator -->
+            <div id="selectedFileInfo" style="display:none;margin-top:.55rem;padding:.5rem .75rem;border-radius:.35rem;background:hsl(var(--accent)/.07);border:1px solid hsl(var(--accent)/.2);display:none;align-items:center;gap:.5rem;font-size:.75rem;">
+              <span style="font-size:1rem;">📄</span>
+              <span id="selectedFileName" style="color:hsl(var(--text-primary));font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+              <span id="selectedFileSize" style="color:hsl(var(--text-dim));flex-shrink:0;"></span>
+            </div>
+
+            <!-- START ANALYSIS BUTTON -->
+            <button id="startAnalysisBtn" onclick="startAnalysis()"
+              style="margin-top:.85rem;width:100%;padding:.75rem 1rem;
+                     border-radius:.5rem;border:none;cursor:pointer;
+                     background:linear-gradient(135deg, hsl(var(--accent)), hsl(270 80% 55%));
+                     color:#fff;font-size:.88rem;font-weight:800;font-family:var(--font-sans);
+                     letter-spacing:.02em;
+                     box-shadow:0 4px 20px hsl(var(--accent)/.35);
+                     transition:all .18s ease;
+                     display:flex;align-items:center;justify-content:center;gap:.55rem;"
+              onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 28px hsl(var(--accent)/.5)';"
+              onmouseout="this.style.transform='';this.style.boxShadow='0 4px 20px hsl(var(--accent)/.35)';">
+              <span style="font-size:1.05rem;">🚀</span> Start Analysis
+            </button>
+
             <div id="uploadStatus"></div>
           </div>
 
@@ -775,11 +775,25 @@ function ev(e, type) {
   else if (type === 'drop') {
     dz.classList.remove('dragover');
     const files = e.dataTransfer.files;
-    if (files.length) { document.getElementById('fileInput').files = files; handleUpload(); }
+    if (files.length) {
+      document.getElementById('fileInput').files = files;
+      // Show file info but don't auto-start — user clicks Start Analysis
+      const f = files[0];
+      const info = document.getElementById('selectedFileInfo');
+      document.getElementById('selectedFileName').textContent = f.name;
+      document.getElementById('selectedFileSize').textContent = formatBytes(f.size);
+      info.style.display = 'flex';
+    }
   }
 }
 document.getElementById('fileInput').addEventListener('change', () => {
-  if (document.getElementById('fileInput').files.length) handleUpload();
+  const f = document.getElementById('fileInput').files[0];
+  if (!f) return;
+  // Show selected file info without auto-uploading
+  const info = document.getElementById('selectedFileInfo');
+  document.getElementById('selectedFileName').textContent = f.name;
+  document.getElementById('selectedFileSize').textContent = formatBytes(f.size);
+  info.style.display = 'flex';
 });
 document.getElementById('analysis_type').addEventListener('change', (e) => {
   const isStatic = e.target.value === 'static_only';
@@ -788,36 +802,28 @@ document.getElementById('analysis_type').addEventListener('change', (e) => {
   document.getElementById('detonation_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
 });
 
-/* ── Run mode toggle ────────────────────────────────────────────── */
-const RUN_MODE_DESCS = {
-  interactive: 'Interactive: VM window is visible so you can observe detonation live.',
-  headless:    'Headless: VM runs silently with no display \u2014 ideal for CI / automated pipelines.'
-};
-function setRunMode(isHeadless) {
-  document.getElementById('run_mode_headless').value = isHeadless ? 'true' : 'false';
-  const btnI = document.getElementById('btn-interactive');
-  const btnH = document.getElementById('btn-headless');
-  const desc = document.getElementById('run_mode_desc');
-  if (isHeadless) {
-    btnH.style.background  = 'hsl(var(--accent))';
-    btnH.style.color       = '#fff';
-    btnH.style.borderColor = 'hsl(var(--accent))';
-    btnI.style.background  = 'transparent';
-    btnI.style.color       = 'hsl(var(--text-dim))';
-    btnI.style.borderColor = 'hsl(var(--border))';
-    desc.textContent = RUN_MODE_DESCS.headless;
-  } else {
-    btnI.style.background  = 'hsl(var(--accent))';
-    btnI.style.color       = '#fff';
-    btnI.style.borderColor = 'hsl(var(--accent))';
-    btnH.style.background  = 'transparent';
-    btnH.style.color       = 'hsl(var(--text-dim))';
-    btnH.style.borderColor = 'hsl(var(--border))';
-    desc.textContent = RUN_MODE_DESCS.interactive;
-  }
+function formatBytes(bytes) {
+  if (bytes < 1024)       return bytes + ' B';
+  if (bytes < 1048576)    return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
-/* ── Detonation mode toggle ───────────────────────────────────────── */
+/* ── Start Analysis (explicit button) ──────────────────────────── */
+function startAnalysis() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) {
+    toast('Please select a file first.', 'error');
+    // Pulse the drop zone to hint the user
+    const dz = document.getElementById('dropZone');
+    dz.style.borderColor = 'hsl(var(--danger))';
+    dz.style.boxShadow = '0 0 18px hsl(var(--danger)/.25)';
+    setTimeout(() => { dz.style.borderColor = ''; dz.style.boxShadow = ''; }, 1400);
+    return;
+  }
+  handleUpload();
+}
+
+
 const DET_MODE_DESCS = {
   'detonate': 'Detonate: Run the executable directly as a standalone program.',
   'auto-install': 'Auto-Install: Automatically execute and automate installation using silent flags or UI automation.'
@@ -852,7 +858,7 @@ function handleUpload() {
   if (!file) return;
   const type = document.getElementById('analysis_type').value;
   const duration = (document.getElementById('analysis_duration') || {value:'120'}).value;
-  const headlessVal = document.getElementById('run_mode_headless').value;
+  const headlessVal = 'false'; // VM always runs in GUI mode
   const detonationModeVal = document.getElementById('sandbox_detonation_mode').value;
   const fd = new FormData();
   fd.append('file', file);
