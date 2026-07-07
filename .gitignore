@@ -143,6 +143,6 @@ rules/*.yarac
 rules/*.yrc
 
 wheels_dir/
-workspace/
+workspace/*.png
 mars_history.db
-mars_history.db
+
