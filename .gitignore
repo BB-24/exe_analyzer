@@ -145,3 +145,4 @@ rules/*.yrc
 wheels_dir/
 workspace/
 mars_history.db
+mars_history.db
