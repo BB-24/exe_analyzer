@@ -169,9 +169,10 @@ class TableFormatter:
     ) -> Table:
         """
         Creates a styled Table or LongTable with explicit styles and repeating headers.
+        Automatically converts headers to white text if header_bg is provided.
+        Applies alternating row background colors for data rows.
         """
         table_cls = LongTable if is_long else Table
-        t = table_cls(data, colWidths=col_widths, repeatRows=repeat_rows)
         
         tbl_styles = [
             ('PADDING', (0, 0), (-1, -1), padding),
@@ -186,7 +187,30 @@ class TableFormatter:
             
         if header_bg:
             tbl_styles.append(('BACKGROUND', (0, 0), (-1, repeat_rows - 1), header_bg))
-            
+            for r_idx in range(repeat_rows):
+                if r_idx < len(data):
+                    for c_idx in range(len(data[r_idx])):
+                        cell = data[r_idx][c_idx]
+                        if isinstance(cell, Paragraph):
+                            text = getattr(cell, "text", "")
+                            old_style = getattr(cell, "style", None)
+                            if old_style:
+                                new_style = ParagraphStyle(
+                                    name=f"{old_style.name}_HeaderWhite",
+                                    parent=old_style,
+                                    textColor=colors.white
+                                )
+                                data[r_idx][c_idx] = Paragraph(text, new_style)
+                                
+        if len(data) > repeat_rows + 1:
+            for i in range(repeat_rows, len(data)):
+                if i == len(data) - 1 and len(data) > 3 and getattr(data[i][0], "text", "").strip() == "<b>...</b>":
+                    tbl_styles.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor("#fef08a")))
+                    continue
+                bg = colors.white if i % 2 == 0 else colors.HexColor("#f8fafc")
+                tbl_styles.append(('BACKGROUND', (0, i), (-1, i), bg))
+
+        t = table_cls(data, colWidths=col_widths, repeatRows=repeat_rows)
         t.setStyle(TableStyle(tbl_styles))
         return t
 
@@ -592,6 +616,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(t_sect)
@@ -842,7 +867,7 @@ class PDFReportBuilder:
             for ev in p1_reg:
                 p1_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
             if len(p1_rows) > 1:
-                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
             else:
                 story.append(Paragraph("No registry mutations captured in Phase 1", self.normal))
             story.append(Spacer(1, 8))
@@ -857,7 +882,7 @@ class PDFReportBuilder:
             for ev in p2_reg:
                 p2_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
             if len(p2_rows) > 1:
-                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
             else:
                 story.append(Paragraph("No registry mutations captured in Phase 2", self.normal))
             story.append(Spacer(1, 10))
@@ -897,6 +922,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(t_reg)
@@ -977,7 +1003,7 @@ class PDFReportBuilder:
             for ev in p1_fs:
                 p1_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
             if len(p1_rows) > 1:
-                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
             else:
                 story.append(Paragraph("No file or folder changes captured in Phase 1", self.normal))
             story.append(Spacer(1, 8))
@@ -992,7 +1018,7 @@ class PDFReportBuilder:
             for ev in p2_fs:
                 p2_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
             if len(p2_rows) > 1:
-                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
             else:
                 story.append(Paragraph("No file or folder changes captured in Phase 2", self.normal))
             story.append(Spacer(1, 10))
@@ -1044,6 +1070,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(t_fs)
@@ -1113,6 +1140,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(t_high)
@@ -1131,7 +1159,8 @@ class PDFReportBuilder:
                 Paragraph("<b>System Target / Binary Path</b>", self.normal_bold)
             ]]
             
-            for item in low_conf:
+            display_low_conf = low_conf[:15]
+            for item in display_low_conf:
                 target = item.get("target_path", "N/A")
                 cmd = item.get("command", "N/A")
                 target_styled = target
@@ -1144,6 +1173,14 @@ class PDFReportBuilder:
                     Paragraph(target_styled, self.code_style)
                 ])
                 
+            if len(low_conf) > 15:
+                remaining = len(low_conf) - 15
+                low_rows.append([
+                    Paragraph("<b>...</b>", self.normal_bold),
+                    Paragraph("<b>...</b>", self.normal_bold),
+                    Paragraph(f"<i>[!] {remaining} other low-confidence system noise/lingering entries omitted for report readability.</i>", self.normal_bold)
+                ])
+                
             if len(low_rows) > 1:
                 t_low = TableFormatter.build_table(
                     data=low_rows,
@@ -1153,6 +1190,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(t_low)
@@ -1189,6 +1227,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(t_pers)
@@ -1330,6 +1369,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 
@@ -1379,6 +1419,7 @@ class PDFReportBuilder:
                 is_long=True,
                 repeat_rows=1,
                 valign='TOP',
+                header_bg=self.primary_color,
                 padding=6
             )
             story.append(hash_table)
@@ -1416,6 +1457,7 @@ class PDFReportBuilder:
                 is_long=True,
                 repeat_rows=1,
                 valign='TOP',
+                header_bg=self.primary_color,
                 padding=6
             )
             story.append(dll_table)
@@ -1446,6 +1488,7 @@ class PDFReportBuilder:
                 is_long=True,
                 repeat_rows=1,
                 valign='TOP',
+                header_bg=self.primary_color,
                 padding=6
             )
             story.append(hash_table)
@@ -1497,6 +1540,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
 
@@ -1550,6 +1594,7 @@ class PDFReportBuilder:
                 is_long=True,
                 repeat_rows=1,
                 valign='TOP',
+                header_bg=self.primary_color,
                 padding=6
             )
             story.append(net_table)
@@ -1571,6 +1616,7 @@ class PDFReportBuilder:
                     is_long=True,
                     repeat_rows=1,
                     valign='TOP',
+                    header_bg=self.primary_color,
                     padding=6
                 )
                 story.append(net_table)

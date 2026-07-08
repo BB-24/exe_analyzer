@@ -797,10 +797,23 @@ document.getElementById('fileInput').addEventListener('change', () => {
   info.style.display = 'flex';
 });
 document.getElementById('analysis_type').addEventListener('change', (e) => {
-  const isStatic = e.target.value === 'static_only';
+  const val = e.target.value;
+  const isStatic = val === 'static_only';
+  const isBifurcated = val === 'bifurcated';
+  
   document.getElementById('duration_wrapper').style.display  = isStatic ? 'none' : 'block';
   document.getElementById('run_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
   document.getElementById('detonation_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
+  
+  const durSelect = document.getElementById('analysis_duration');
+  if (durSelect) {
+    if (isBifurcated) {
+      durSelect.value = '900';
+      durSelect.disabled = true;
+    } else {
+      durSelect.disabled = false;
+    }
+  }
 });
 
 function formatBytes(bytes) {
