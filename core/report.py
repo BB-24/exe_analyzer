@@ -234,6 +234,7 @@ class NumberedCanvas(canvas.Canvas):
     def save(self) -> None:
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
+            state.pop('_saved_page_states', None)
             self.__dict__.update(state)
             self.draw_page_elements(num_pages)
             super().showPage()
@@ -290,6 +291,7 @@ class PDFReportBuilder:
     """
 
     def __init__(self, config: dict) -> None:
+        self.config = config
         self.reports_dir = config.get("system", {}).get("reports_dir", "./workspace/reports")
         os.makedirs(self.reports_dir, exist_ok=True)
         
@@ -968,6 +970,56 @@ class PDFReportBuilder:
         target_name = list(dyn_results.keys())[0]
         telemetry = dyn_results.get(target_name, {})
 
+        # Exe Location
+        story.append(Paragraph("Exe Location", self.h2_style))
+        guest_user = self.config.get("sandbox", {}).get("guest_user", "Administrator")
+        exe_location = f"C:\\Users\\{guest_user}\\Desktop\\sample.exe"
+        
+        exe_loc_rows = [
+            [Paragraph("<b>Initial Executable Path:</b>", self.normal_bold), Paragraph(exe_location, self.code_style)]
+        ]
+        
+        # Extract installer dropped payload path
+        installed_path = "None Captured / Not Dropped"
+        fs_data = telemetry.get("file_system_monitoring", {})
+        created_files = fs_data.get("files_created", [])
+        for f in created_files:
+            if f.lower().endswith(".exe") and "sample.exe" not in f.lower() and "two_phase_agents" not in f.lower() and "unified_agents" not in f.lower():
+                installed_path = f
+                break
+                
+        if installed_path == "None Captured / Not Dropped":
+            for ev in telemetry.get("Filesystem", []):
+                ev_upper = str(ev).upper()
+                if ("CREATE" in ev_upper or "DROP" in ev_upper) and ".EXE" in ev_upper:
+                    path_match = re.search(r"Path:\s*([^\s(]+)", str(ev))
+                    if path_match:
+                        installed_path = path_match.group(1)
+                        break
+                        
+        if installed_path == "None Captured / Not Dropped":
+            tree = telemetry.get("process_tree_generation", {}).get("tree", {})
+            children = tree.get("children", [])
+            if children:
+                first_child = children[0]
+                installed_path = first_child.get("command_line", "N/A")
+                
+        if installed_path != "None Captured / Not Dropped":
+            exe_loc_rows.append([Paragraph("<b>Installed Payload Path:</b>", self.normal_bold), Paragraph(installed_path, self.code_style)])
+            
+        t_loc = TableFormatter.build_table(
+            data=exe_loc_rows,
+            col_widths=[180, 324],
+            bg_color=self.bg_light,
+            border_color=self.border_color,
+            is_long=False,
+            repeat_rows=0,
+            valign='TOP',
+            padding=6
+        )
+        story.append(t_loc)
+        story.append(Spacer(1, 10))
+
         analysis_type = meta.get("Analysis Type", "full_detonation")
 
         # Compute Registry Counts
@@ -1023,12 +1075,29 @@ class PDFReportBuilder:
             ))
             story.append(Spacer(1, 5))
             
+            def get_reg_breakdown(reg_list):
+                added = 0
+                modified = 0
+                deleted = 0
+                for ev in reg_list:
+                    ev_upper = str(ev).upper()
+                    if "DELETE" in ev_upper:
+                        deleted += 1
+                    elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper:
+                        added += 1
+                    else:
+                        modified += 1
+                return added, modified, deleted
+
+            p1_added, p1_modified, p1_deleted = get_reg_breakdown(p1_reg)
+            p2_added, p2_modified, p2_deleted = get_reg_breakdown(p2_reg)
+
             # Phase 1
-            story.append(Paragraph(f"<b>Phase 1: Installation (Installer Wrapper) Registry Changes</b> &mdash; <b>{len(p1_reg)}</b> changes recorded.", self.normal))
+            story.append(Paragraph(f"<b>Phase 1: Installation (Installer Wrapper) Registry Changes</b> &mdash; <b>{p1_added}</b> created/added, <b>{p1_modified}</b> modified, and <b>{p1_deleted}</b> deleted.", self.normal))
             story.append(Spacer(1, 8))
 
             # Phase 2
-            story.append(Paragraph(f"<b>Phase 2: Payload Testing (Main Payload) Registry Changes</b> &mdash; <b>{len(p2_reg)}</b> changes recorded.", self.normal))
+            story.append(Paragraph(f"<b>Phase 2: Payload Testing (Main Payload) Registry Changes</b> &mdash; <b>{p2_added}</b> created/added, <b>{p2_modified}</b> modified, and <b>{p2_deleted}</b> deleted.", self.normal))
             story.append(Spacer(1, 10))
         else:
             story.append(Paragraph("Registry Entry Made by the Application", self.h2_style))
@@ -1036,50 +1105,6 @@ class PDFReportBuilder:
                 f"Summary of registry activity: <b>{reg_added_cnt}</b> created/added, <b>{reg_modified_cnt}</b> modified, and <b>{reg_deleted_cnt}</b> deleted.",
                 self.normal
             ))
-            story.append(Spacer(1, 5))
-
-            reg_header = [
-                Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
-                Paragraph("<b>Operation Type</b>", self.normal_bold)
-            ]
-            reg_rows = [reg_header]
-            if "process_tree_generation" in telemetry:
-                reg_data = telemetry.get("registry_monitoring", {})
-                for k in reg_data.get("keys_deleted", []):
-                    reg_rows.append([Paragraph(f"<font color='#dc2626'>{k}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>[!] KEY DELETED</b></font>", self.normal)])
-                for v in reg_data.get("values_deleted", []):
-                    reg_rows.append([Paragraph(f"<font color='#dc2626'>{v}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>[!] VALUE DELETED</b></font>", self.normal)])
-                for val in reg_data.get("values_added", []):
-                    path = val.get("path", "")
-                    is_sus = any(x in path.lower() for x in ["run", "runonce", "startup", "services", "winlogon"])
-                    p_style = f"<font color='#dc2626'><b>[!] {path}</b></font>" if is_sus else path
-                    op_style = f"<font color='#dc2626'><b>VALUE ADDED ({val.get('type')})</b></font>" if is_sus else f"VALUE ADDED ({val.get('type')})"
-                    reg_rows.append([Paragraph(p_style, self.code_style), Paragraph(op_style, self.normal)])
-                for val in reg_data.get("values_modified", []):
-                    path = val.get("path", "")
-                    is_sus = any(x in path.lower() for x in ["run", "runonce", "startup", "services", "winlogon"])
-                    p_style = f"<font color='#dc2626'><b>[!] {path}</b></font>" if is_sus else path
-                    op_style = f"<font color='#dc2626'><b>VALUE MODIFIED ({val.get('type')})</b></font>" if is_sus else f"VALUE MODIFIED ({val.get('type')})"
-                    reg_rows.append([Paragraph(p_style, self.code_style), Paragraph(op_style, self.normal)])
-            else:
-                for ev in telemetry.get("Registry", []):
-                    reg_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
-
-            if len(reg_rows) > 1:
-                t_reg = TableFormatter.build_table(
-                    data=reg_rows,
-                    col_widths=[384, 120],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=1,
-                    valign='TOP',
-                    header_bg=self.primary_color,
-                    padding=6
-                )
-                story.append(t_reg)
-            else:
-                story.append(Paragraph("N/A - No registry mutations captured", self.normal))
             story.append(Spacer(1, 10))
 
         # Compute File System Counts
@@ -1145,12 +1170,52 @@ class PDFReportBuilder:
             ))
             story.append(Spacer(1, 5))
             
+            def get_fs_breakdown(fs_list):
+                file_created = 0
+                file_modified = 0
+                file_deleted = 0
+                folder_created = 0
+                folder_modified = 0
+                folder_deleted = 0
+                for ev in fs_list:
+                    ev_upper = str(ev).upper()
+                    is_folder = "DIRECTORY" in ev_upper or "FOLDER" in ev_upper or "DIR_" in ev_upper
+                    if "DELETE" in ev_upper:
+                        if is_folder:
+                            folder_deleted += 1
+                        else:
+                            file_deleted += 1
+                    elif "CREATE" in ev_upper or "DROP" in ev_upper:
+                        if is_folder:
+                            folder_created += 1
+                        else:
+                            file_created += 1
+                    else:
+                        if is_folder:
+                            folder_modified += 1
+                        else:
+                            file_modified += 1
+                return file_created, file_modified, file_deleted, folder_created, folder_modified, folder_deleted
+
+            p1_file_c, p1_file_m, p1_file_d, p1_fold_c, p1_fold_m, p1_fold_d = get_fs_breakdown(p1_fs)
+            p2_file_c, p2_file_m, p2_file_d, p2_fold_c, p2_fold_m, p2_fold_d = get_fs_breakdown(p2_fs)
+
             # Phase 1
-            story.append(Paragraph(f"<b>Phase 1: Installation (Installer Wrapper) File Changes</b> &mdash; <b>{len(p1_fs)}</b> changes recorded.", self.normal))
+            story.append(Paragraph(
+                f"<b>Phase 1: Installation (Installer Wrapper) File & Folder Changes</b> &mdash;<br/>"
+                f"Files: <b>{p1_file_c}</b> created, <b>{p1_file_m}</b> modified, and <b>{p1_file_d}</b> deleted.<br/>"
+                f"Folders: <b>{p1_fold_c}</b> created, <b>{p1_fold_m}</b> modified, and <b>{p1_fold_d}</b> deleted.",
+                self.normal
+            ))
             story.append(Spacer(1, 8))
 
             # Phase 2
-            story.append(Paragraph(f"<b>Phase 2: Payload Testing (Main Payload) File Changes</b> &mdash; <b>{len(p2_fs)}</b> changes recorded.", self.normal))
+            story.append(Paragraph(
+                f"<b>Phase 2: Payload Testing (Main Payload) File & Folder Changes</b> &mdash;<br/>"
+                f"Files: <b>{p2_file_c}</b> created, <b>{p2_file_m}</b> modified, and <b>{p2_file_d}</b> deleted.<br/>"
+                f"Folders: <b>{p2_fold_c}</b> created, <b>{p2_fold_m}</b> modified, and <b>{p2_fold_d}</b> deleted.",
+                self.normal
+            ))
             story.append(Spacer(1, 10))
         else:
             story.append(Paragraph("File and Folder Changes Made During Installation", self.h2_style))
@@ -1162,67 +1227,6 @@ class PDFReportBuilder:
                 f"Summary of folder changes: <b>{folder_created_cnt}</b> created, <b>{folder_modified_cnt}</b> modified, and <b>{folder_deleted_cnt}</b> deleted.",
                 self.normal
             ))
-            story.append(Spacer(1, 10))
-
-            fs_header = [
-                Paragraph("<b>File / Folder Path</b>", self.normal_bold),
-                Paragraph("<b>Operation Type</b>", self.normal_bold)
-            ]
-            fs_rows = [fs_header]
-            if "process_tree_generation" in telemetry:
-                fs_data = telemetry.get("file_system_monitoring", {})
-                sus_fs_keywords = ["temp", "appdata", "roaming", "\\tmp\\", "programdata", "startup", "system32", "syswow64"]
-                sus_ext = [".exe", ".dll", ".bat", ".ps1", ".vbs", ".cmd", ".scr", ".pif"]
-                def _is_sus_path(p):
-                    pl = p.lower()
-                    return any(k in pl for k in sus_fs_keywords) or any(pl.endswith(e) for e in sus_ext)
-                # File changes
-                for f in fs_data.get("files_created", []):
-                    if _is_sus_path(f):
-                        fs_rows.append([Paragraph(f"<font color='#dc2626'><b>[!] {f}</b></font>", self.code_style), Paragraph("<font color='#dc2626'><b>FILE CREATED</b></font>", self.normal)])
-                    else:
-                        fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE CREATED", self.normal)])
-                for f in fs_data.get("files_modified", []):
-                    if _is_sus_path(f):
-                        fs_rows.append([Paragraph(f"<font color='#dc2626'><b>[!] {f}</b></font>", self.code_style), Paragraph("<font color='#dc2626'><b>FILE MODIFIED</b></font>", self.normal)])
-                    else:
-                        fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE MODIFIED", self.normal)])
-                for f in fs_data.get("files_deleted", []):
-                    fs_rows.append([Paragraph(f"<font color='#dc2626'>{f}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>FILE DELETED</b></font>", self.normal)])
-                for f in fs_data.get("files_renamed", []):
-                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE RENAMED", self.normal)])
-                # Folder changes
-                for f in fs_data.get("folders_created", []):
-                    if _is_sus_path(f):
-                        fs_rows.append([Paragraph(f"<font color='#dc2626'><b>[!] {f}</b></font>", self.code_style), Paragraph("<font color='#dc2626'><b>FOLDER CREATED</b></font>", self.normal)])
-                    else:
-                        fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER CREATED", self.normal)])
-                for f in fs_data.get("folders_modified", []):
-                    if _is_sus_path(f):
-                        fs_rows.append([Paragraph(f"<font color='#dc2626'><b>[!] {f}</b></font>", self.code_style), Paragraph("<font color='#dc2626'><b>FOLDER MODIFIED</b></font>", self.normal)])
-                    else:
-                        fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER MODIFIED", self.normal)])
-                for f in fs_data.get("folders_deleted", []):
-                    fs_rows.append([Paragraph(f"<font color='#dc2626'>{f}</font>", self.code_style), Paragraph("<font color='#dc2626'><b>FOLDER DELETED</b></font>", self.normal)])
-            else:
-                for ev in telemetry.get("Filesystem", []):
-                    fs_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
-
-            if len(fs_rows) > 1:
-                t_fs = TableFormatter.build_table(
-                    data=fs_rows,
-                    col_widths=[384, 120],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=1,
-                    valign='TOP',
-                    header_bg=self.primary_color,
-                    padding=6
-                )
-                story.append(t_fs)
-            else:
-                story.append(Paragraph("N/A - No file or folder changes captured", self.normal))
             story.append(Spacer(1, 10))
 
         story.append(Spacer(1, 15))
