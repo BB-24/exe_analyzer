@@ -413,10 +413,14 @@ class MalwareSandboxAnalyzer:
         self.cancelled = True
         self.is_running = False
 
-    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False, mode="detonate"):
+    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False, mode="detonate", analysis_type="full_detonation"):
         self.cancelled = False
         self.target_binary = os.path.abspath(target_binary)
-        self.duration_seconds = duration_seconds
+        self.analysis_type = analysis_type
+        if analysis_type == "bifurcated":
+            self.duration_seconds = 900
+        else:
+            self.duration_seconds = duration_seconds
         self.config = config or {}
         self.headless = False  # VM always runs in interactive GUI mode
         self.mode = mode  # "detonate" or "auto-install"
@@ -853,6 +857,7 @@ class MalwareSandboxAnalyzer:
 
         # 1. Filesystem Mutations (FR-DYN-01)
         if tag == "FR-DYN-01":
+            phase = event_data.get("analysis_phase", "INSTALLER_WRAPPER") if is_json else "INSTALLER_WRAPPER"
             if is_json:
                 path = event_data.get("target_path", "")
                 event_type = event_data.get("event_type", event_type)
@@ -904,10 +909,12 @@ class MalwareSandboxAnalyzer:
                 + len(self.file_data["folders_modified"])
                 + len(self.file_data["folders_deleted"])
             )
+            event_str += f" [Phase: {phase}]"
             self.rich_telemetry["Filesystem"].append(event_str)
 
         # 2. Registry Mutations (FR-DYN-02)
         elif tag == "FR-DYN-02":
+            phase = event_data.get("analysis_phase", "INSTALLER_WRAPPER") if is_json else "INSTALLER_WRAPPER"
             if is_json:
                 key_path = event_data.get("key_path", "")
                 value_name = event_data.get("value_name", "")
@@ -964,6 +971,7 @@ class MalwareSandboxAnalyzer:
                 + len(self.registry_data["values_added"])
                 + len(self.registry_data["values_modified"])
             )
+            event_str += f" [Phase: {phase}]"
             self.rich_telemetry["Registry"].append(event_str)
 
         # 3. Persistence mechanisms (FR-DYN-03)
@@ -1123,6 +1131,7 @@ class MalwareSandboxAnalyzer:
 
         # 5. Memory / DLL injection (FR-DYN-05)
         elif tag == "FR-DYN-05":
+            phase = event_data.get("analysis_phase", "INSTALLER_WRAPPER") if is_json else "INSTALLER_WRAPPER"
             if is_json:
                 pid_val = event_data.get("pid", 0)
                 proc_name = event_data.get("process_name", "N/A")
@@ -1151,6 +1160,7 @@ class MalwareSandboxAnalyzer:
                                 "signature_status": sig_val,
                                 "sha256": sha_val,
                                 "risk_indicators": risk_list,
+                                "analysis_phase": phase,
                             }
                         )
                 elif event_type == "MEMORY_INJECT":
@@ -1187,6 +1197,7 @@ class MalwareSandboxAnalyzer:
                             "signature_status": "MEM_INJECT",
                             "sha256": f"Protection: {prot_val}",
                             "risk_indicators": risk_indicators,
+                            "analysis_phase": phase,
                         }
                     )
             else:
@@ -1257,10 +1268,12 @@ class MalwareSandboxAnalyzer:
                     )
                     event_str = f"[{event_type}] Memory Injection: PID {pid_val} | Address {addr_val} | Size {size_val} | Protection {prot_val}"
 
+            event_str += f" [Phase: {phase}]"
             self.rich_telemetry["Memory"].append(event_str)
 
         # 6. Network (FR-DYN-06)
         elif tag == "FR-DYN-06":
+            phase = event_data.get("analysis_phase", "INSTALLER_WRAPPER") if is_json else "INSTALLER_WRAPPER"
             if is_json:
                 pid = event_data.get("pid", 0)
                 proc_name = event_data.get("process_name", "N/A")
@@ -1294,6 +1307,7 @@ class MalwareSandboxAnalyzer:
                         "domain": domain,
                         "raw_hex": "",
                         "scapy_action": action_str,
+                        "analysis_phase": phase,
                     }
                 )
             else:
@@ -1329,6 +1343,7 @@ class MalwareSandboxAnalyzer:
                 )
                 event_str = f"[{event_type}] Protocol: {proto_val} | Dest: {dest_val} | Action: {det_val}"
 
+            event_str += f" [Phase: {phase}]"
             self.rich_telemetry["Network"].append(event_str)
 
         # 7. Hardware stress (FR-DYN-07)
@@ -1404,6 +1419,10 @@ class MalwareSandboxAnalyzer:
         elif tag == "SYSTEM" or tag == "system":
             if event_type == "COMPLETE":
                 self.guest_completed = True
+            elif event_type in ("PHASE_START", "PHASE_SHIFT"):
+                msg_detail = event_data.get("detail", detail) if is_json else detail
+                # Broadcast phase switch to GUI
+                pub.sendMessage("gui.log", msg=f"\n[+] Notification: Phase Two (Payload Testing) has started! Detail: {msg_detail}\n")
             event_str = f"[{event_type}] {detail}"
             self.rich_telemetry["System"].append(event_str)
 
@@ -1797,8 +1816,12 @@ class MalwareSandboxAnalyzer:
                 )
 
                 # 5. Copy sandbox agent to guest desktop
-                agent_src = os.path.abspath("sandbox_agents/unified_agents.py")
-                guest_agent = f"C:\\Users\\{guest_user}\\Desktop\\unified_agents.py"
+                if getattr(self, "analysis_type", "full_detonation") == "bifurcated":
+                    agent_src = os.path.abspath("sandbox_agents/two_phase_agents.py")
+                    guest_agent = f"C:\\Users\\{guest_user}\\Desktop\\two_phase_agents.py"
+                else:
+                    agent_src = os.path.abspath("sandbox_agents/unified_agents.py")
+                    guest_agent = f"C:\\Users\\{guest_user}\\Desktop\\unified_agents.py"
                 self._log(
                     f"[*] Copying sandbox agent to guest VM at '{guest_agent}'..."
                 )
@@ -2662,20 +2685,21 @@ class DynamicController:
         self.is_analyzing = False
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
 
-    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False, mode="detonate"):
+    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False, mode="detonate", analysis_type="full_detonation"):
         """Orchestrates dynamic analysis using MalwareSandboxAnalyzer.
         
         Args:
             target_exe_path: Path to the binary to analyse inside the VM.
             duration_seconds: Override the analysis window length (seconds).
             mode: Sandbox detonation mode ('detonate' or 'auto-install').
+            analysis_type: Detonation strategy ('full_detonation', 'bifurcated', etc.).
         """
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
 
-        timeout = duration_seconds if duration_seconds is not None else self.timeout
+        timeout = 900 if analysis_type == "bifurcated" else (duration_seconds if duration_seconds is not None else self.timeout)
         pub.sendMessage(
-            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds (interactive GUI mode, execution: {mode})..."
+            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds (interactive GUI mode, execution: {mode}, strategy: {analysis_type})..."
         )
 
         analyzer = MalwareSandboxAnalyzer(
@@ -2684,6 +2708,7 @@ class DynamicController:
             config=self.config,
             headless=False,
             mode=mode,
+            analysis_type=analysis_type,
         )
         analyzer.execute_analysis()
 

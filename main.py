@@ -6,6 +6,7 @@ import shutil
 import asyncio
 import threading
 import tempfile
+import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -132,6 +133,8 @@ def handle_gui_update_table(module: str, data):
 
 def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120, headless: bool = False, mode: str = "detonate"):
     global active_session_sha256
+    if workflow_type == "bifurcated":
+        duration_seconds = 900
     print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type} mode={mode}")
 
     with analysis_lock:
@@ -189,8 +192,8 @@ def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, work
 
             completion_event.clear()
 
-            run_static  = workflow_type in ("full_detonation", "static_only")
-            run_dynamic = workflow_type in ("full_detonation", "dynamic_only")
+            run_static  = workflow_type in ("full_detonation", "static_only", "bifurcated")
+            run_dynamic = workflow_type in ("full_detonation", "dynamic_only", "bifurcated")
 
             target_analysis_path = temp_filepath
             if not os.path.exists(target_analysis_path) and os.path.exists(filepath):
@@ -205,6 +208,7 @@ def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, work
                 duration_seconds=duration_seconds,
                 headless=False,
                 mode=mode,
+                analysis_type=workflow_type,
             )
 
             completion_event.wait(timeout=duration_seconds + 600)
@@ -310,7 +314,7 @@ def handle_analysis_complete(status: str):
             except Exception:
                 pass
 
-    if workflow_type in ("full_detonation", "dynamic_only"):
+    if workflow_type in ("full_detonation", "dynamic_only", "bifurcated"):
         pcap_path = os.path.join(PCAPS_DIR, f"{sha256}_traffic.pcap")
         os.makedirs(os.path.dirname(pcap_path), exist_ok=True)
         if not os.path.exists(pcap_path):

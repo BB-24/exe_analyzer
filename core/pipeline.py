@@ -83,11 +83,11 @@ class AnalysisPipeline:
     # PubSub entry point
     # ------------------------------------------------------------------
 
-    def _on_analysis_start(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False, mode="detonate"):
+    def _on_analysis_start(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False, mode="detonate", analysis_type="full_detonation"):
         pub.sendMessage("gui.log", msg=f"\n[*] Pipeline triggered for: {filepath}")
         thread = threading.Thread(
             target=self._execute_pipeline,
-            args=(filepath, run_static, run_dynamic, original_filename, duration_seconds, mode),
+            args=(filepath, run_static, run_dynamic, original_filename, duration_seconds, mode, analysis_type),
             daemon=True,
         )
         thread.start()
@@ -96,7 +96,7 @@ class AnalysisPipeline:
     # Main pipeline
     # ------------------------------------------------------------------
 
-    def _execute_pipeline(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, mode="detonate"):
+    def _execute_pipeline(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, mode="detonate", analysis_type="full_detonation"):
         try:
             report_pkg_data     = []
             report_static_data  = {}
@@ -122,6 +122,7 @@ class AnalysisPipeline:
                 metadata["Original File Name"] = original_filename
 
             analysis_id = metadata.get("Analysis ID")
+            metadata["Analysis Type"] = analysis_type
             ext = metadata.get("Extension", "").lower()
             # Use the real filename as the display key; fall back to basename of filepath
             display_name = original_filename or os.path.basename(filepath)
@@ -203,7 +204,7 @@ class AnalysisPipeline:
                         )
 
                         try:
-                            dyn_res = self.dynamic_module.run_sandbox_analysis(target_path, duration_seconds=duration_seconds, mode=mode)
+                            dyn_res = self.dynamic_module.run_sandbox_analysis(target_path, duration_seconds=duration_seconds, mode=mode, analysis_type=analysis_type)
                         except Exception as e:
                             pub.sendMessage(
                                 "gui.log",

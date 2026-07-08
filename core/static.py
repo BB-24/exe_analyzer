@@ -45,10 +45,24 @@ class StaticModule:
         pub.sendMessage("gui.log", msg="\n[+] --- Starting Static Analysis Module ---")
         
         try:
-            pe = pefile.PE(filepath)
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            pe = pefile.PE(data=file_data)
             results = {}
             
+            # Calculate overall file entropy
+            overall_entropy = self._calculate_entropy(file_data)
+            detected_packer = self._detect_packer(pe, overall_entropy)
+            
+            pub.sendMessage("gui.log", msg=f"[*] Overall File Entropy: {overall_entropy:.4f}")
+            pub.sendMessage("gui.log", msg=f"[*] Detected Packer Heuristics: {detected_packer}")
+            
             self._analyze_pe_headers(pe, results)        # FR-STA-02
+            
+            # Inject overall entropy and detected packer into PE Headers results
+            if "PE Headers" in results:
+                results["PE Headers"]["Overall File Entropy"] = f"{overall_entropy:.4f}"
+                results["PE Headers"]["Detected Packer"] = detected_packer
             self._analyze_mitigations(pe, results)       # FR-STA-03
             self._analyze_sections(pe, results)          # FR-STA-04 & 08
             self._analyze_imports(pe, results)           # FR-STA-05
@@ -236,6 +250,34 @@ class StaticModule:
                 entropy += - p_x * math.log(p_x, 2)
                 
         return entropy
+
+    def _detect_packer(self, pe, file_entropy):
+        """Heuristically detects standard packers using PE section names and entropy."""
+        for section in pe.sections:
+            try:
+                name = section.Name.decode('utf-8', errors='ignore').strip('\x00').upper()
+            except Exception:
+                continue
+            if "UPX" in name:
+                return "UPX"
+            if "ASPACK" in name:
+                return "ASPack"
+            if "PEC" in name:
+                return "PECompact"
+            if "THEMIDA" in name or "VMP" in name or ".VMP" in name:
+                return "Themida / VMProtect"
+            if "PELOCK" in name:
+                return "PELock"
+            if "FSG" in name:
+                return "FSG"
+            if "PETITE" in name:
+                return "Petite"
+            if "ENIGMA" in name:
+                return "Enigma Protector"
+
+        if file_entropy > 7.2:
+            return "Unknown Packer (High Entropy)"
+        return "None Detected"
 
     # ==========================================
     # FR-STA-05: Suspicious Import Tracking
