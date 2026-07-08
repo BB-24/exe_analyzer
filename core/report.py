@@ -1024,33 +1024,11 @@ class PDFReportBuilder:
             story.append(Spacer(1, 5))
             
             # Phase 1
-            story.append(Paragraph("<b>Phase 1: Installation (Installer Wrapper) Registry Changes</b>", self.normal_bold))
-            story.append(Spacer(1, 3))
-            p1_rows = [[
-                Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
-                Paragraph("<b>Operation Type</b>", self.normal_bold)
-            ]]
-            for ev in p1_reg:
-                p1_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
-            if len(p1_rows) > 1:
-                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
-            else:
-                story.append(Paragraph("No registry mutations captured in Phase 1", self.normal))
+            story.append(Paragraph(f"<b>Phase 1: Installation (Installer Wrapper) Registry Changes</b> &mdash; <b>{len(p1_reg)}</b> changes recorded.", self.normal))
             story.append(Spacer(1, 8))
 
             # Phase 2
-            story.append(Paragraph("<b>Phase 2: Payload Testing (Main Payload) Registry Changes</b>", self.normal_bold))
-            story.append(Spacer(1, 3))
-            p2_rows = [[
-                Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
-                Paragraph("<b>Operation Type</b>", self.normal_bold)
-            ]]
-            for ev in p2_reg:
-                p2_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
-            if len(p2_rows) > 1:
-                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
-            else:
-                story.append(Paragraph("No registry mutations captured in Phase 2", self.normal))
+            story.append(Paragraph(f"<b>Phase 2: Payload Testing (Main Payload) Registry Changes</b> &mdash; <b>{len(p2_reg)}</b> changes recorded.", self.normal))
             story.append(Spacer(1, 10))
         else:
             story.append(Paragraph("Registry Entry Made by the Application", self.h2_style))
@@ -1168,33 +1146,11 @@ class PDFReportBuilder:
             story.append(Spacer(1, 5))
             
             # Phase 1
-            story.append(Paragraph("<b>Phase 1: Installation (Installer Wrapper) File Changes</b>", self.normal_bold))
-            story.append(Spacer(1, 3))
-            p1_rows = [[
-                Paragraph("<b>File / Folder Path</b>", self.normal_bold),
-                Paragraph("<b>Operation Type</b>", self.normal_bold)
-            ]]
-            for ev in p1_fs:
-                p1_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
-            if len(p1_rows) > 1:
-                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
-            else:
-                story.append(Paragraph("No file or folder changes captured in Phase 1", self.normal))
+            story.append(Paragraph(f"<b>Phase 1: Installation (Installer Wrapper) File Changes</b> &mdash; <b>{len(p1_fs)}</b> changes recorded.", self.normal))
             story.append(Spacer(1, 8))
 
             # Phase 2
-            story.append(Paragraph("<b>Phase 2: Payload Testing (Main Payload) File Changes</b>", self.normal_bold))
-            story.append(Spacer(1, 3))
-            p2_rows = [[
-                Paragraph("<b>File / Folder Path</b>", self.normal_bold),
-                Paragraph("<b>Operation Type</b>", self.normal_bold)
-            ]]
-            for ev in p2_fs:
-                p2_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
-            if len(p2_rows) > 1:
-                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', header_bg=self.primary_color, padding=6))
-            else:
-                story.append(Paragraph("No file or folder changes captured in Phase 2", self.normal))
+            story.append(Paragraph(f"<b>Phase 2: Payload Testing (Main Payload) File Changes</b> &mdash; <b>{len(p2_fs)}</b> changes recorded.", self.normal))
             story.append(Spacer(1, 10))
         else:
             story.append(Paragraph("File and Folder Changes Made During Installation", self.h2_style))
