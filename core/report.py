@@ -777,157 +777,279 @@ class PDFReportBuilder:
         target_name = list(dyn_results.keys())[0]
         telemetry = dyn_results.get(target_name, {})
 
+        analysis_type = meta.get("Analysis Type", "full_detonation")
+
         # Compute Registry Counts
         reg_added_cnt = 0
         reg_deleted_cnt = 0
         reg_modified_cnt = 0
 
-        if "process_tree_generation" in telemetry:
-            reg_data = telemetry.get("registry_monitoring", {})
-            reg_added_cnt = len(reg_data.get("values_added", []))
-            reg_deleted_cnt = len(reg_data.get("keys_deleted", [])) + len(reg_data.get("values_deleted", []))
-            reg_modified_cnt = len(reg_data.get("values_modified", []))
-        else:
+        p1_reg = []
+        p2_reg = []
+
+        if analysis_type == "bifurcated":
             for ev in telemetry.get("Registry", []):
-                ev_upper = str(ev).upper()
+                ev_str = str(ev)
+                ev_upper = ev_str.upper()
                 if "DELETE" in ev_upper:
                     reg_deleted_cnt += 1
                 elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper:
                     reg_added_cnt += 1
-                elif "MODIFY" in ev_upper or "MUTATED" in ev_upper:
-                    reg_modified_cnt += 1
                 else:
                     reg_modified_cnt += 1
+                
+                # Segregate by Phase
+                if "PHASE: MAIN_PAYLOAD" in ev_upper:
+                    clean_ev = ev_str.replace(" [Phase: MAIN_PAYLOAD]", "").replace(" [Phase: INSTALLER_WRAPPER]", "")
+                    p2_reg.append(clean_ev)
+                else:
+                    clean_ev = ev_str.replace(" [Phase: MAIN_PAYLOAD]", "").replace(" [Phase: INSTALLER_WRAPPER]", "")
+                    p1_reg.append(clean_ev)
+        else:
+            if "process_tree_generation" in telemetry:
+                reg_data = telemetry.get("registry_monitoring", {})
+                reg_added_cnt = len(reg_data.get("values_added", []))
+                reg_deleted_cnt = len(reg_data.get("keys_deleted", [])) + len(reg_data.get("values_deleted", []))
+                reg_modified_cnt = len(reg_data.get("values_modified", []))
+            else:
+                for ev in telemetry.get("Registry", []):
+                    ev_upper = str(ev).upper()
+                    if "DELETE" in ev_upper:
+                        reg_deleted_cnt += 1
+                    elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper:
+                        reg_added_cnt += 1
+                    elif "MODIFY" in ev_upper or "MUTATED" in ev_upper:
+                        reg_modified_cnt += 1
+                    else:
+                        reg_modified_cnt += 1
 
         # 1. Registry Entry Made by the Application
-        story.append(Paragraph("Registry Entry Made by the Application", self.h2_style))
-        story.append(Paragraph(
-            f"Summary of registry activity: <b>{reg_added_cnt}</b> created/added, <b>{reg_modified_cnt}</b> modified, and <b>{reg_deleted_cnt}</b> deleted.",
-            self.normal
-        ))
-        story.append(Spacer(1, 5))
+        if analysis_type == "bifurcated":
+            story.append(Paragraph("Registry Entries Made by the Application", self.h2_style))
+            story.append(Paragraph(
+                f"Summary of registry activity: <b>{reg_added_cnt}</b> created/added, <b>{reg_modified_cnt}</b> modified, and <b>{reg_deleted_cnt}</b> deleted.",
+                self.normal
+            ))
+            story.append(Spacer(1, 5))
+            
+            # Phase 1
+            story.append(Paragraph("<b>Phase 1: Installation (Installer Wrapper) Registry Changes</b>", self.normal_bold))
+            story.append(Spacer(1, 3))
+            p1_rows = [[
+                Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
+                Paragraph("<b>Operation Type</b>", self.normal_bold)
+            ]]
+            for ev in p1_reg:
+                p1_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
+            if len(p1_rows) > 1:
+                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+            else:
+                story.append(Paragraph("No registry mutations captured in Phase 1", self.normal))
+            story.append(Spacer(1, 8))
 
-        reg_header = [
-            Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
-            Paragraph("<b>Operation Type</b>", self.normal_bold)
-        ]
-        reg_rows = [reg_header]
-        if "process_tree_generation" in telemetry:
-            reg_data = telemetry.get("registry_monitoring", {})
-            for k in reg_data.get("keys_deleted", []):
-                reg_rows.append([Paragraph(k, self.code_style), Paragraph("KEY DELETED", self.normal)])
-            for v in reg_data.get("values_deleted", []):
-                reg_rows.append([Paragraph(v, self.code_style), Paragraph("VALUE DELETED", self.normal)])
-            for val in reg_data.get("values_added", []):
-                reg_rows.append([Paragraph(val.get("path", ""), self.code_style), Paragraph(f"VALUE ADDED ({val.get('type')})", self.normal)])
-            for val in reg_data.get("values_modified", []):
-                reg_rows.append([Paragraph(val.get("path", ""), self.code_style), Paragraph(f"VALUE MODIFIED ({val.get('type')})", self.normal)])
+            # Phase 2
+            story.append(Paragraph("<b>Phase 2: Payload Testing (Main Payload) Registry Changes</b>", self.normal_bold))
+            story.append(Spacer(1, 3))
+            p2_rows = [[
+                Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
+                Paragraph("<b>Operation Type</b>", self.normal_bold)
+            ]]
+            for ev in p2_reg:
+                p2_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
+            if len(p2_rows) > 1:
+                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+            else:
+                story.append(Paragraph("No registry mutations captured in Phase 2", self.normal))
+            story.append(Spacer(1, 10))
         else:
-            for ev in telemetry.get("Registry", []):
-                reg_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
+            story.append(Paragraph("Registry Entry Made by the Application", self.h2_style))
+            story.append(Paragraph(
+                f"Summary of registry activity: <b>{reg_added_cnt}</b> created/added, <b>{reg_modified_cnt}</b> modified, and <b>{reg_deleted_cnt}</b> deleted.",
+                self.normal
+            ))
+            story.append(Spacer(1, 5))
 
-        if len(reg_rows) > 1:
-            t_reg = TableFormatter.build_table(
-                data=reg_rows,
-                col_widths=[384, 120],
-                bg_color=self.bg_light,
-                border_color=self.border_color,
-                is_long=True,
-                repeat_rows=1,
-                valign='TOP',
-                padding=6
-            )
-            story.append(t_reg)
-        else:
-            story.append(Paragraph("N/A - No registry mutations captured", self.normal))
-        story.append(Spacer(1, 10))
+            reg_header = [
+                Paragraph("<b>Registry Key / Value Path</b>", self.normal_bold),
+                Paragraph("<b>Operation Type</b>", self.normal_bold)
+            ]
+            reg_rows = [reg_header]
+            if "process_tree_generation" in telemetry:
+                reg_data = telemetry.get("registry_monitoring", {})
+                for k in reg_data.get("keys_deleted", []):
+                    reg_rows.append([Paragraph(k, self.code_style), Paragraph("KEY DELETED", self.normal)])
+                for v in reg_data.get("values_deleted", []):
+                    reg_rows.append([Paragraph(v, self.code_style), Paragraph("VALUE DELETED", self.normal)])
+                for val in reg_data.get("values_added", []):
+                    reg_rows.append([Paragraph(val.get("path", ""), self.code_style), Paragraph(f"VALUE ADDED ({val.get('type')})", self.normal)])
+                for val in reg_data.get("values_modified", []):
+                    reg_rows.append([Paragraph(val.get("path", ""), self.code_style), Paragraph(f"VALUE MODIFIED ({val.get('type')})", self.normal)])
+            else:
+                for ev in telemetry.get("Registry", []):
+                    reg_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
+
+            if len(reg_rows) > 1:
+                t_reg = TableFormatter.build_table(
+                    data=reg_rows,
+                    col_widths=[384, 120],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
+                story.append(t_reg)
+            else:
+                story.append(Paragraph("N/A - No registry mutations captured", self.normal))
+            story.append(Spacer(1, 10))
 
         # Compute File System Counts
         fs_created_cnt = 0
         fs_deleted_cnt = 0
         fs_modified_cnt = 0
+        folder_created_cnt = 0
+        folder_modified_cnt = 0
+        folder_deleted_cnt = 0
 
-        if "process_tree_generation" in telemetry:
-            fs_data = telemetry.get("file_system_monitoring", {})
-            fs_created_cnt = len(fs_data.get("files_created", []))
-            fs_deleted_cnt = len(fs_data.get("files_deleted", []))
-            fs_modified_cnt = len(fs_data.get("files_modified", [])) + len(fs_data.get("files_renamed", []))
-            # Folder-specific counts (paths intentionally not surfaced in the report)
-            folder_created_cnt = len(fs_data.get("folders_created", []))
-            folder_modified_cnt = len(fs_data.get("folders_modified", []))
-            folder_deleted_cnt = len(fs_data.get("folders_deleted", []))
-        else:
-            folder_created_cnt = 0
-            folder_modified_cnt = 0
-            folder_deleted_cnt = 0
+        p1_fs = []
+        p2_fs = []
+
+        if analysis_type == "bifurcated":
             for ev in telemetry.get("Filesystem", []):
-                ev_upper = str(ev).upper()
-                if "CREATE" in ev_upper or "DROP" in ev_upper:
-                    fs_created_cnt += 1
-                elif "DELETE" in ev_upper:
+                ev_str = str(ev)
+                ev_upper = ev_str.upper()
+                if "DELETE" in ev_upper:
                     fs_deleted_cnt += 1
-                elif "MODIFY" in ev_upper or "RENAME" in ev_upper or "MUTATED" in ev_upper:
-                    fs_modified_cnt += 1
+                elif "CREATE" in ev_upper or "DROP" in ev_upper:
+                    fs_created_cnt += 1
                 else:
                     fs_modified_cnt += 1
+                
+                # Segregate by Phase
+                if "PHASE: MAIN_PAYLOAD" in ev_upper:
+                    clean_ev = ev_str.replace(" [Phase: MAIN_PAYLOAD]", "").replace(" [Phase: INSTALLER_WRAPPER]", "")
+                    p2_fs.append(clean_ev)
+                else:
+                    clean_ev = ev_str.replace(" [Phase: MAIN_PAYLOAD]", "").replace(" [Phase: INSTALLER_WRAPPER]", "")
+                    p1_fs.append(clean_ev)
+        else:
+            if "process_tree_generation" in telemetry:
+                fs_data = telemetry.get("file_system_monitoring", {})
+                fs_created_cnt = len(fs_data.get("files_created", []))
+                fs_deleted_cnt = len(fs_data.get("files_deleted", []))
+                fs_modified_cnt = len(fs_data.get("files_modified", [])) + len(fs_data.get("files_renamed", []))
+                folder_created_cnt = len(fs_data.get("folders_created", []))
+                folder_modified_cnt = len(fs_data.get("folders_modified", []))
+                folder_deleted_cnt = len(fs_data.get("folders_deleted", []))
+            else:
+                for ev in telemetry.get("Filesystem", []):
+                    ev_upper = str(ev).upper()
+                    if "CREATE" in ev_upper or "DROP" in ev_upper:
+                        fs_created_cnt += 1
+                    elif "DELETE" in ev_upper:
+                        fs_deleted_cnt += 1
+                    elif "MODIFY" in ev_upper or "RENAME" in ev_upper or "MUTATED" in ev_upper:
+                        fs_modified_cnt += 1
+                    else:
+                        fs_modified_cnt += 1
 
         story.append(Spacer(1, 15))
         story.append(get_divider())
         story.append(Spacer(1, 15))
+
         # 2. File and Folder Changes Made During Installation
-        story.append(Paragraph("File and Folder Changes Made During Installation", self.h2_style))
-        story.append(Paragraph(
-            f"Summary of file changes: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
-            self.normal
-        ))
-        story.append(Paragraph(
-            f"Summary of folder changes: <b>{folder_created_cnt}</b> created, <b>{folder_modified_cnt}</b> modified, and <b>{folder_deleted_cnt}</b> deleted.",
-            self.normal
-        ))
-        story.append(Spacer(1, 10))
+        if analysis_type == "bifurcated":
+            story.append(Paragraph("File and Folder Changes Made by the Application", self.h2_style))
+            story.append(Paragraph(
+                f"Summary of file changes: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
+                self.normal
+            ))
+            story.append(Spacer(1, 5))
+            
+            # Phase 1
+            story.append(Paragraph("<b>Phase 1: Installation (Installer Wrapper) File Changes</b>", self.normal_bold))
+            story.append(Spacer(1, 3))
+            p1_rows = [[
+                Paragraph("<b>File / Folder Path</b>", self.normal_bold),
+                Paragraph("<b>Operation Type</b>", self.normal_bold)
+            ]]
+            for ev in p1_fs:
+                p1_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
+            if len(p1_rows) > 1:
+                story.append(TableFormatter.build_table(p1_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+            else:
+                story.append(Paragraph("No file or folder changes captured in Phase 1", self.normal))
+            story.append(Spacer(1, 8))
 
-        fs_header = [
-            Paragraph("<b>File / Folder Path</b>", self.normal_bold),
-            Paragraph("<b>Operation Type</b>", self.normal_bold)
-        ]
-        fs_rows = [fs_header]
-        if "process_tree_generation" in telemetry:
-            fs_data = telemetry.get("file_system_monitoring", {})
-            # File changes
-            for f in fs_data.get("files_created", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE CREATED", self.normal)])
-            for f in fs_data.get("files_modified", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE MODIFIED", self.normal)])
-            for f in fs_data.get("files_deleted", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE DELETED", self.normal)])
-            for f in fs_data.get("files_renamed", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE RENAMED", self.normal)])
-            # Folder changes
-            for f in fs_data.get("folders_created", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER CREATED", self.normal)])
-            for f in fs_data.get("folders_modified", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER MODIFIED", self.normal)])
-            for f in fs_data.get("folders_deleted", []):
-                fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER DELETED", self.normal)])
+            # Phase 2
+            story.append(Paragraph("<b>Phase 2: Payload Testing (Main Payload) File Changes</b>", self.normal_bold))
+            story.append(Spacer(1, 3))
+            p2_rows = [[
+                Paragraph("<b>File / Folder Path</b>", self.normal_bold),
+                Paragraph("<b>Operation Type</b>", self.normal_bold)
+            ]]
+            for ev in p2_fs:
+                p2_rows.append([Paragraph(ev, self.code_style), Paragraph("MUTATED", self.normal)])
+            if len(p2_rows) > 1:
+                story.append(TableFormatter.build_table(p2_rows, [384, 120], bg_color=self.bg_light, border_color=self.border_color, is_long=True, repeat_rows=1, valign='TOP', padding=6))
+            else:
+                story.append(Paragraph("No file or folder changes captured in Phase 2", self.normal))
+            story.append(Spacer(1, 10))
         else:
-            for ev in telemetry.get("Filesystem", []):
-                fs_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
+            story.append(Paragraph("File and Folder Changes Made During Installation", self.h2_style))
+            story.append(Paragraph(
+                f"Summary of file changes: <b>{fs_created_cnt}</b> created, <b>{fs_modified_cnt}</b> modified, and <b>{fs_deleted_cnt}</b> deleted.",
+                self.normal
+            ))
+            story.append(Paragraph(
+                f"Summary of folder changes: <b>{folder_created_cnt}</b> created, <b>{folder_modified_cnt}</b> modified, and <b>{folder_deleted_cnt}</b> deleted.",
+                self.normal
+            ))
+            story.append(Spacer(1, 10))
 
-        if len(fs_rows) > 1:
-            t_fs = TableFormatter.build_table(
-                data=fs_rows,
-                col_widths=[384, 120],
-                bg_color=self.bg_light,
-                border_color=self.border_color,
-                is_long=True,
-                repeat_rows=1,
-                valign='TOP',
-                padding=6
-            )
-            story.append(t_fs)
-        else:
-            story.append(Paragraph("N/A - No file or folder changes captured", self.normal))
-        story.append(Spacer(1, 10))
+            fs_header = [
+                Paragraph("<b>File / Folder Path</b>", self.normal_bold),
+                Paragraph("<b>Operation Type</b>", self.normal_bold)
+            ]
+            fs_rows = [fs_header]
+            if "process_tree_generation" in telemetry:
+                fs_data = telemetry.get("file_system_monitoring", {})
+                # File changes
+                for f in fs_data.get("files_created", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE CREATED", self.normal)])
+                for f in fs_data.get("files_modified", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE MODIFIED", self.normal)])
+                for f in fs_data.get("files_deleted", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE DELETED", self.normal)])
+                for f in fs_data.get("files_renamed", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FILE RENAMED", self.normal)])
+                # Folder changes
+                for f in fs_data.get("folders_created", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER CREATED", self.normal)])
+                for f in fs_data.get("folders_modified", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER MODIFIED", self.normal)])
+                for f in fs_data.get("folders_deleted", []):
+                    fs_rows.append([Paragraph(f, self.code_style), Paragraph("FOLDER DELETED", self.normal)])
+            else:
+                for ev in telemetry.get("Filesystem", []):
+                    fs_rows.append([Paragraph(str(ev), self.code_style), Paragraph("MUTATED", self.normal)])
+
+            if len(fs_rows) > 1:
+                t_fs = TableFormatter.build_table(
+                    data=fs_rows,
+                    col_widths=[384, 120],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
+                story.append(t_fs)
+            else:
+                story.append(Paragraph("N/A - No file or folder changes captured", self.normal))
+            story.append(Spacer(1, 10))
 
         story.append(Spacer(1, 15))
         story.append(get_divider())
@@ -1170,14 +1292,98 @@ class PDFReportBuilder:
         dll_info = telemetry.get("dll_signature_monitoring", {})
         dll_details = dll_info.get("details", [])
         unsigned_count = dll_info.get("unsigned_dlls_count", 0)
-        if unsigned_count:
-            story.append(Paragraph(
-                f"<font color='#dc2626'><b>{unsigned_count} unsigned DLL(s)</b></font> detected during execution.",
-                self.normal
-            ))
-            story.append(Spacer(1, 8))
 
-        if dll_details:
+        if analysis_type == "bifurcated" and dll_details:
+            p1_dlls = [d for d in dll_details if d.get("analysis_phase") != "MAIN_PAYLOAD"]
+            p2_dlls = [d for d in dll_details if d.get("analysis_phase") == "MAIN_PAYLOAD"]
+            
+            p1_unsigned = len([d for d in p1_dlls if d.get("signature_status") == "UNSIGNED"])
+            p2_unsigned = len([d for d in p2_dlls if d.get("signature_status") == "UNSIGNED"])
+            
+            def draw_dll_table(dlls):
+                dll_table_data = [[
+                    Paragraph("<b>DLL Name</b>", self.normal_bold),
+                    Paragraph("<b>Path</b>", self.normal_bold),
+                    Paragraph("<b>Signature</b>", self.normal_bold),
+                    Paragraph("<b>Risk Indicators</b>", self.normal_bold),
+                ]]
+                for dll in dlls:
+                    sig_status = dll.get("signature_status", "UNKNOWN")
+                    sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
+                    risk_text = ", ".join(dll.get("risk_indicators", [])) or "None"
+                    dll_name = dll.get("dll_name", "Unknown")
+                    if sig_status == "UNSIGNED":
+                        name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                    else:
+                        name_p = Paragraph(dll_name, self.normal)
+                    dll_table_data.append([
+                        name_p,
+                        Paragraph(dll.get("dll_path", "N/A"), self.code_style),
+                        Paragraph(f"<font color='{sig_color}'><b>{sig_status}</b></font>", self.normal),
+                        Paragraph(risk_text, self.normal),
+                    ])
+                return TableFormatter.build_table(
+                    data=dll_table_data,
+                    col_widths=[90, 190, 74, 150],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
+                
+            story.append(Paragraph("<b>Phase 1: Installation (Installer Wrapper) Loaded/Dropped DLLs</b>", self.normal_bold))
+            if p1_unsigned:
+                story.append(Paragraph(f"<font color='#dc2626'><b>{p1_unsigned} unsigned DLL(s)</b></font> detected in Phase 1.", self.normal))
+                story.append(Spacer(1, 4))
+            if p1_dlls:
+                story.append(draw_dll_table(p1_dlls))
+            else:
+                story.append(Paragraph("No DLLs loaded or dropped in Phase 1.", self.normal))
+            story.append(Spacer(1, 8))
+            
+            story.append(Paragraph("<b>Phase 2: Payload Testing (Main Payload) Loaded/Dropped DLLs</b>", self.normal_bold))
+            if p2_unsigned:
+                story.append(Paragraph(f"<font color='#dc2626'><b>{p2_unsigned} unsigned DLL(s)</b></font> detected in Phase 2.", self.normal))
+                story.append(Spacer(1, 4))
+            if p2_dlls:
+                story.append(draw_dll_table(p2_dlls))
+            else:
+                story.append(Paragraph("No DLLs loaded or dropped in Phase 2.", self.normal))
+            story.append(Spacer(1, 10))
+
+            # SHA256 detail sub-table
+            story.append(Spacer(1, 8))
+            story.append(Paragraph("<b>DLL Hashes</b>", self.h2_style))
+            hash_data = [[
+                Paragraph("<b>DLL Name</b>", self.normal_bold),
+                Paragraph("<b>SHA256</b>", self.normal_bold),
+            ]]
+            for dll in dll_details:
+                dll_name = dll.get("dll_name", "Unknown")
+                sig_status = dll.get("signature_status", "UNKNOWN")
+                if sig_status == "UNSIGNED":
+                    name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                else:
+                    name_p = Paragraph(dll_name, self.normal)
+                hash_data.append([
+                    name_p,
+                    Paragraph(dll.get("sha256", "N/A"), self.code_style),
+                ])
+            hash_table = TableFormatter.build_table(
+                data=hash_data,
+                col_widths=[120, 384],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
+            story.append(hash_table)
+            
+        elif dll_details:
             dll_table_data = [[
                 Paragraph("<b>DLL Name</b>", self.normal_bold),
                 Paragraph("<b>Path</b>", self.normal_bold),
@@ -1254,14 +1460,68 @@ class PDFReportBuilder:
         net_info = telemetry.get("network_communication_analysis", {})
         net_details = net_info.get("details", [])
         total_connections = net_info.get("summary", {}).get("total_connections", 0)
-        
-        story.append(Paragraph(
-            f"Total connections/requests captured: <b>{total_connections}</b>",
-            self.normal
-        ))
-        story.append(Spacer(1, 8))
-        
-        if net_details:
+
+        if analysis_type == "bifurcated" and net_details:
+            p1_net = [n for n in net_details if n.get("analysis_phase") != "MAIN_PAYLOAD"]
+            p2_net = [n for n in net_details if n.get("analysis_phase") == "MAIN_PAYLOAD"]
+
+            story.append(Paragraph(
+                f"Total connections/requests captured: <b>{total_connections}</b>",
+                self.normal
+            ))
+            story.append(Spacer(1, 8))
+
+            def draw_net_table(conns):
+                net_table_data = [[
+                    Paragraph("<b>Protocol</b>", self.normal_bold),
+                    Paragraph("<b>Port</b>", self.normal_bold),
+                    Paragraph("<b>Direction</b>", self.normal_bold),
+                    Paragraph("<b>Activity / Domain / Command</b>", self.normal_bold),
+                ]]
+                for conn in conns:
+                    proto = conn.get("protocol", "N/A")
+                    port = str(conn.get("dst_port", "N/A"))
+                    direct = conn.get("direction", "OUTBOUND")
+                    action = conn.get("scapy_action", "") or conn.get("domain", "") or "N/A"
+                    net_table_data.append([
+                        Paragraph(proto, self.normal),
+                        Paragraph(port, self.normal),
+                        Paragraph(direct, self.normal),
+                        Paragraph(action, self.code_style),
+                    ])
+                return TableFormatter.build_table(
+                    data=net_table_data,
+                    col_widths=[64, 54, 74, 312],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
+
+            story.append(Paragraph("<b>Phase 1: Installation (Installer Wrapper) Network Traffic</b>", self.normal_bold))
+            story.append(Spacer(1, 4))
+            if p1_net:
+                story.append(draw_net_table(p1_net))
+            else:
+                story.append(Paragraph("No network activity captured in Phase 1.", self.normal))
+            story.append(Spacer(1, 8))
+
+            story.append(Paragraph("<b>Phase 2: Payload Testing (Main Payload) Network Traffic</b>", self.normal_bold))
+            story.append(Spacer(1, 4))
+            if p2_net:
+                story.append(draw_net_table(p2_net))
+            else:
+                story.append(Paragraph("No network activity captured in Phase 2.", self.normal))
+            story.append(Spacer(1, 10))
+
+        elif net_details:
+            story.append(Paragraph(
+                f"Total connections/requests captured: <b>{total_connections}</b>",
+                self.normal
+            ))
+            story.append(Spacer(1, 8))
             net_table_data = [[
                 Paragraph("<b>Protocol</b>", self.normal_bold),
                 Paragraph("<b>Port</b>", self.normal_bold),
