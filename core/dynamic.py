@@ -416,11 +416,14 @@ class MalwareSandboxAnalyzer:
     def __init__(self, target_binary, duration_seconds=20, config=None, headless=False, mode="detonate", analysis_type="full_detonation"):
         self.cancelled = False
         self.target_binary = os.path.abspath(target_binary)
-        self.duration_seconds = duration_seconds
+        self.analysis_type = analysis_type
+        if analysis_type == "bifurcated":
+            self.duration_seconds = 900
+        else:
+            self.duration_seconds = duration_seconds
         self.config = config or {}
         self.headless = False  # VM always runs in interactive GUI mode
         self.mode = mode  # "detonate" or "auto-install"
-        self.analysis_type = analysis_type
         self.target_pid = None
         self.process_tree_flat = []
         self.monitored_pids = set()
@@ -2694,7 +2697,7 @@ class DynamicController:
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
 
-        timeout = duration_seconds if duration_seconds is not None else self.timeout
+        timeout = 900 if analysis_type == "bifurcated" else (duration_seconds if duration_seconds is not None else self.timeout)
         pub.sendMessage(
             "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds (interactive GUI mode, execution: {mode}, strategy: {analysis_type})..."
         )

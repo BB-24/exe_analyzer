@@ -132,6 +132,8 @@ def handle_gui_update_table(module: str, data):
 
 def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120, headless: bool = False, mode: str = "detonate"):
     global active_session_sha256
+    if workflow_type == "bifurcated":
+        duration_seconds = 900
     print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type} mode={mode}")
 
     with analysis_lock:
