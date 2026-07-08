@@ -1254,6 +1254,13 @@ class PDFReportBuilder:
             return any(dir_name in s_lower for dir_name in ["appdata", "roaming", "local\\temp", "\\temp\\", "users\\public", "programdata", "desktop", "downloads"])
 
         if has_new_schema:
+            # Sort high_conf so flagged ones (suspicious paths/user directory) come first
+            def is_flagged(item):
+                target = item.get("target_path", "N/A")
+                cmd = item.get("command", "N/A")
+                return is_user_directory(target) or is_user_directory(cmd)
+            high_conf = sorted(high_conf, key=lambda x: not is_flagged(x))
+
             # 1. High Confidence Persistence Table
             story.append(Paragraph("<b>High-Confidence Persistence Entries</b>", self.normal_bold))
             story.append(Spacer(1, 3))
@@ -1491,13 +1498,14 @@ class PDFReportBuilder:
             p2_unsigned = len([d for d in p2_dlls if d.get("signature_status") == "UNSIGNED"])
             
             def draw_dll_table(dlls):
+                sorted_dlls = sorted(dlls, key=lambda x: x.get("signature_status", "UNKNOWN") != "UNSIGNED")
                 dll_table_data = [[
                     Paragraph("<b>DLL Name</b>", self.normal_bold),
                     Paragraph("<b>Path</b>", self.normal_bold),
                     Paragraph("<b>Signature</b>", self.normal_bold),
                     Paragraph("<b>Risk Indicators</b>", self.normal_bold),
                 ]]
-                for dll in dlls:
+                for dll in sorted_dlls:
                     sig_status = dll.get("signature_status", "UNKNOWN")
                     sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
                     risk_indicators = dll.get("risk_indicators", [])
@@ -1581,13 +1589,14 @@ class PDFReportBuilder:
             story.append(hash_table)
             
         elif dll_details:
+            sorted_dlls = sorted(dll_details, key=lambda x: x.get("signature_status", "UNKNOWN") != "UNSIGNED")
             dll_table_data = [[
                 Paragraph("<b>DLL Name</b>", self.normal_bold),
                 Paragraph("<b>Path</b>", self.normal_bold),
                 Paragraph("<b>Signature</b>", self.normal_bold),
                 Paragraph("<b>Risk Indicators</b>", self.normal_bold),
             ]]
-            for dll in dll_details:
+            for dll in sorted_dlls:
                 sig_status = dll.get("signature_status", "UNKNOWN")
                 sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
                 risk_indicators = dll.get("risk_indicators", [])
