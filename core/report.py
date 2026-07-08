@@ -572,12 +572,15 @@ class PDFReportBuilder:
                     if is_unusual_entropy: reason.append("High entropy (potential obfuscation/packing)")
                     unusual_sects.append(f"• <b>{clean_name}</b> &mdash; Entropy: {entropy}, Permissions: {perms} ({', and '.join(reason)})")
 
-        # Check overall file entropy
+        # Check overall file entropy and compiler/packer
         overall_entropy_val = "N/A"
+        detected_compiler_or_packer = "None Detected"
         for t, res in static_results.items():
             pe_headers = res.get("PE Headers", {})
             if "Overall File Entropy" in pe_headers:
                 overall_entropy_val = pe_headers["Overall File Entropy"]
+            if "Detected Packer" in pe_headers:
+                detected_compiler_or_packer = pe_headers["Detected Packer"]
 
         is_entropy_really_high = False
         try:
@@ -641,10 +644,24 @@ class PDFReportBuilder:
                 for dom in active_domains[:10]:
                     overall_assessment += f"<br/>• <font color='#dc2626'><b>{dom}</b></font> &mdash; Connection request logged"
 
+        # Style the compiler/packer text for summary table
+        cp_val = str(detected_compiler_or_packer)
+        packer_keywords = ["packer", "protector", "themida", "vmp", "upx", "enigma", "pelock", "aspack", "fsg", "petite", "pecompact"]
+        compiler_keywords = ["msvc", "gcc", "mingw", "go compiler", "rust compiler", "delphi", "pyinstaller"]
+        cp_lower = cp_val.lower()
+        
+        if any(kw in cp_lower for kw in packer_keywords):
+            styled_cp = f"<font color='#dc2626'><b>[!] {cp_val}</b></font>"
+        elif any(kw in cp_lower for kw in compiler_keywords):
+            styled_cp = f"<font color='#16a34a'><b>{cp_val}</b></font>"
+        else:
+            styled_cp = cp_val
+
         summary_table_data = [
             [Paragraph("<b>Sample Analyzed</b>", self.normal_bold), Paragraph(filename, self.normal)],
             [Paragraph("<b>Risk Score</b>", self.normal_bold), Paragraph(f"<b>{score * 10.0:.0f}/100</b>", self.normal_bold)],
             [Paragraph("<b>Verdict</b>", self.normal_bold), Paragraph(f"<font color='{verdict_color}'><b>{verdict}</b></font>", self.normal_bold)],
+            [Paragraph("<b>Compiler / Packer</b>", self.normal_bold), Paragraph(styled_cp, self.normal)],
             [Paragraph("<b>Total YARA Matches</b>", self.normal_bold), Paragraph(str(yara_matches), self.normal)]
         ]
 
@@ -801,7 +818,18 @@ class PDFReportBuilder:
             
             # Overall File Entropy (printed below Section Analysis)
             file_entropy_val = file_data.get("PE Headers", {}).get("Overall File Entropy", "N/A")
-            story.append(Paragraph(f"<b>Overall File Entropy:</b> {file_entropy_val}", self.normal))
+            is_overall_entropy_high = False
+            try:
+                is_overall_entropy_high = float(file_entropy_val) >= 7.0
+            except ValueError:
+                pass
+            
+            if is_overall_entropy_high:
+                entropy_p = f"<font color='#dc2626'><b>[!] {file_entropy_val} (High - Indicates obfuscation/packing)</b></font>"
+            else:
+                entropy_p = file_entropy_val
+
+            story.append(Paragraph(f"<b>Overall File Entropy:</b> {entropy_p}", self.normal))
             story.append(Spacer(1, 10))
 
             # PE Headers
@@ -811,6 +839,24 @@ class PDFReportBuilder:
                 pe_rows = []
                 for k, v in pe_headers_data.items():
                     if k == "Overall File Entropy":
+                        continue
+                    if k == "Detected Packer":
+                        v_str = str(v)
+                        packer_keywords = ["packer", "protector", "themida", "vmp", "upx", "enigma", "pelock", "aspack", "fsg", "petite", "pecompact"]
+                        compiler_keywords = ["msvc", "gcc", "mingw", "go compiler", "rust compiler", "delphi", "pyinstaller"]
+                        v_lower = v_str.lower()
+                        
+                        if any(kw in v_lower for kw in packer_keywords):
+                            styled_v = f"<font color='#dc2626'><b>[!] {v_str}</b></font>"
+                        elif any(kw in v_lower for kw in compiler_keywords):
+                            styled_v = f"<font color='#16a34a'><b>{v_str}</b></font>"
+                        else:
+                            styled_v = v_str
+                        
+                        pe_rows.append([
+                            Paragraph("<b>Compiler / Packer</b>", self.normal_bold),
+                            Paragraph(styled_v, self.normal)
+                        ])
                         continue
                     pe_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)])
                 t_pe = TableFormatter.build_table(
@@ -880,11 +926,18 @@ class PDFReportBuilder:
                 art_rows = []
                 for k in ["IPv4", "IPv6", "URL", "Registry", "Password-Like"]:
                     v = art_data.get(k, [])
-                    v_str = ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
+                    items = [str(x) for x in v] if isinstance(v, list) else ([str(v)] if v else [])
+                    
+                    if len(items) > 40:
+                        v_str = ", ".join(items[:40]) + f", ... and {len(items) - 40} more items (see JSON)"
+                    else:
+                        v_str = ", ".join(items)
+                        
                     art_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(v_str, self.code_style)])
+                
                 t_art = TableFormatter.build_table(
                     data=art_rows,
-                    col_widths=[150, 354],
+                    col_widths=[120, 384],
                     bg_color=self.bg_light,
                     border_color=self.border_color,
                     is_long=True,
@@ -1551,8 +1604,88 @@ class PDFReportBuilder:
             if p2_unsigned:
                 story.append(Paragraph(f"<font color='#dc2626'><b>{p2_unsigned} unsigned DLL(s)</b></font> detected in Phase 2.", self.normal))
                 story.append(Spacer(1, 4))
-            if p2_dlls:
-                story.append(draw_dll_table(p2_dlls))
+
+            # Collect DLL drops (files written to disk with .dll extension during MAIN_PAYLOAD)
+            p2_dll_drops = []
+            if "process_tree_generation" in telemetry:
+                fs_data = telemetry.get("file_system_monitoring", {})
+                for entry in fs_data.get("files_created", []):
+                    if isinstance(entry, dict):
+                        path_val = entry.get("path", "")
+                        phase_val = entry.get("phase", "INSTALLER_WRAPPER")
+                    else:
+                        # Legacy plain-string format — parse phase from Filesystem event strings
+                        path_val = str(entry)
+                        phase_val = "INSTALLER_WRAPPER"
+                    if phase_val == "MAIN_PAYLOAD" and path_val.lower().endswith(".dll"):
+                        p2_dll_drops.append(path_val)
+            else:
+                # Fallback: parse phase from Filesystem log strings
+                for ev_str in telemetry.get("Filesystem", []):
+                    if "[Phase: MAIN_PAYLOAD]" in ev_str and "FILE_CREATED" in ev_str:
+                        import re as _re
+                        m = _re.search(r"Path:\s*([^\s(]+)", ev_str)
+                        if m:
+                            p = m.group(1).strip().rstrip(",")
+                            if p.lower().endswith(".dll"):
+                                p2_dll_drops.append(p)
+
+            # Build combined table: runtime loads + disk drops
+            has_p2_content = p2_dlls or p2_dll_drops
+            if has_p2_content:
+                p2_combined_table_data = [[
+                    Paragraph("<b>DLL Name</b>", self.normal_bold),
+                    Paragraph("<b>Path</b>", self.normal_bold),
+                    Paragraph("<b>Type</b>", self.normal_bold),
+                    Paragraph("<b>Signature</b>", self.normal_bold),
+                    Paragraph("<b>Risk Indicators</b>", self.normal_bold),
+                ]]
+
+                # Sort: unsigned first, then signed
+                sorted_p2 = sorted(p2_dlls, key=lambda x: x.get("signature_status", "UNKNOWN") != "UNSIGNED")
+                for dll in sorted_p2:
+                    sig_status = dll.get("signature_status", "UNKNOWN")
+                    sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
+                    risk_indicators = dll.get("risk_indicators", [])
+                    risk_styled = f"<font color='#dc2626'><b>{', '.join(risk_indicators)}</b></font>" if risk_indicators else "None"
+                    dll_name = dll.get("dll_name", "Unknown")
+                    dll_path = dll.get("dll_path", "N/A")
+                    if sig_status == "UNSIGNED":
+                        name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                        path_p = Paragraph(f"<font color='#dc2626'>{dll_path}</font>", self.code_style)
+                    else:
+                        name_p = Paragraph(dll_name, self.normal)
+                        path_p = Paragraph(dll_path, self.code_style)
+                    p2_combined_table_data.append([
+                        name_p,
+                        path_p,
+                        Paragraph("Runtime Load", self.normal),
+                        Paragraph(f"<font color='{sig_color}'><b>{sig_status}</b></font>", self.normal),
+                        Paragraph(risk_styled, self.normal),
+                    ])
+
+                # Append DLL drops (flagged red, type = File Drop)
+                for dp in p2_dll_drops:
+                    p2_combined_table_data.append([
+                        Paragraph(f"<font color='#dc2626'><b>[!] {os.path.basename(dp)}</b></font>", self.normal_bold),
+                        Paragraph(dp, self.code_style),
+                        Paragraph("<font color='#dc2626'><b>File Drop</b></font>", self.normal_bold),
+                        Paragraph("<font color='#dc2626'><b>UNSIGNED</b></font>", self.normal),
+                        Paragraph("<font color='#dc2626'><b>DLL written to disk by payload</b></font>", self.normal),
+                    ])
+
+                p2_combo_table = TableFormatter.build_table(
+                    data=p2_combined_table_data,
+                    col_widths=[90, 160, 62, 66, 126],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=True,
+                    repeat_rows=1,
+                    valign='TOP',
+                    header_bg=self.primary_color,
+                    padding=6
+                )
+                story.append(p2_combo_table)
             else:
                 story.append(Paragraph("No DLLs loaded or dropped in Phase 2.", self.normal))
             story.append(Spacer(1, 10))
@@ -1564,7 +1697,8 @@ class PDFReportBuilder:
                 Paragraph("<b>DLL Name</b>", self.normal_bold),
                 Paragraph("<b>SHA256</b>", self.normal_bold),
             ]]
-            for dll in dll_details:
+            sorted_hash_dlls = sorted(dll_details, key=lambda x: x.get("signature_status", "UNKNOWN") != "UNSIGNED")
+            for dll in sorted_hash_dlls:
                 dll_name = dll.get("dll_name", "Unknown")
                 sig_status = dll.get("signature_status", "UNKNOWN")
                 if sig_status == "UNSIGNED":
@@ -1639,7 +1773,8 @@ class PDFReportBuilder:
                 Paragraph("<b>DLL Name</b>", self.normal_bold),
                 Paragraph("<b>SHA256</b>", self.normal_bold),
             ]]
-            for dll in dll_details:
+            sorted_hash_dlls = sorted(dll_details, key=lambda x: x.get("signature_status", "UNKNOWN") != "UNSIGNED")
+            for dll in sorted_hash_dlls:
                 dll_name = dll.get("dll_name", "Unknown")
                 sig_status = dll.get("signature_status", "UNKNOWN")
                 if sig_status == "UNSIGNED":
