@@ -44,7 +44,7 @@ tracking_lock = threading.Lock()
 ser = None
 for attempt in range(15):
     try:
-        ser = serial.Serial(SERIAL_PORT, baudrate=115200, timeout=1)
+        ser = serial.Serial(SERIAL_PORT, baudrate=115200, timeout=1, write_timeout=2)
         print(f"[+] Serial port {SERIAL_PORT} connected successfully.")
         break
     except Exception as e:
@@ -1548,3 +1548,9 @@ if __name__ == "__main__":
     parse_kernel_logs(mode)
     
     stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")
+    if ser:
+        try:
+            ser.close()
+        except Exception:
+            pass
+    time.sleep(3)

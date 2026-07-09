@@ -51,7 +51,7 @@ CURRENT_PHASE = "INSTALLER_WRAPPER"  # Shifts dynamically to "MAIN_PAYLOAD"
 ser = None
 for attempt in range(15):
     try:
-        ser = serial.Serial(SERIAL_PORT, baudrate=115200, timeout=1)
+        ser = serial.Serial(SERIAL_PORT, baudrate=115200, timeout=1, write_timeout=2)
         print(f"[+] Serial port {SERIAL_PORT} connected successfully.")
         break
     except Exception as e:
@@ -287,10 +287,6 @@ def monitor_processes():
                         
                         if is_payload:
                             PAYLOAD_PIDS.add(str(pid))
-                            CURRENT_PHASE = "MAIN_PAYLOAD"
-                            stream_log("SYSTEM", "PHASE_SHIFT", {
-                                "detail": f"Transitioned window to MAIN_PAYLOAD. Primary target detected: {new_proc.Name} (PID: {pid})"
-                            })
                             
                         verdict = _classify_process_verdict(cmd, new_proc.Name)
                             
@@ -938,19 +934,20 @@ if __name__ == "__main__":
                 forced_transition = True
             break
 
-        # Check if the root installer and all its children have finished executing
+        # Check if the root installer and all its children (excluding payload processes) have finished executing
         if INSTALLER_PID:
-            active_tracked = False
+            installer_active = False
             with tracking_lock:
                 for pid in tracked_pids:
-                    try:
-                        if psutil.pid_exists(int(pid)):
-                            active_tracked = True
-                            break
-                    except Exception:
-                        pass
-            if not active_tracked:
-                stream_log("SYSTEM", "PHASE_SHIFT", "Root installer and all child processes exited. Transitioning to Phase 2.")
+                    if pid not in PAYLOAD_PIDS:
+                        try:
+                            if psutil.pid_exists(int(pid)):
+                                installer_active = True
+                                break
+                        except Exception:
+                            pass
+            if not installer_active:
+                stream_log("SYSTEM", "PHASE_SHIFT", "Root installer and helper processes exited. Transitioning to Phase 2.")
                 CURRENT_PHASE = "MAIN_PAYLOAD"
                 break
             
@@ -1005,4 +1002,10 @@ if __name__ == "__main__":
     parse_kernel_logs(mode)
     
     stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")
+    if ser:
+        try:
+            ser.close()
+        except Exception:
+            pass
+    time.sleep(3)
     

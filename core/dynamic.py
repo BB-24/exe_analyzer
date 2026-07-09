@@ -786,8 +786,8 @@ class MalwareSandboxAnalyzer:
         while self.is_running:
             pipe_fd = None
             try:
-                # Open pipe with read-only binary mode
-                pipe_fd = open(pipe_path, "rb")
+                # Open pipe with read-only binary mode (unbuffered for real-time reads)
+                pipe_fd = open(pipe_path, "rb", buffering=0)
                 self._log("[+] Successfully connected to sandbox serial pipe.")
             except PermissionError:
                 # PermissionError indicates that VM workstation is closing/opening or pipe is locked.
@@ -809,7 +809,8 @@ class MalwareSandboxAnalyzer:
 
                     if not chunk:
                         # EOF / Peer disconnected
-                        self._log("[*] Serial pipe connection closed by peer.")
+                        self._log("[*] Serial pipe connection closed by peer. Marking guest analysis as complete/stopped.")
+                        self.guest_completed = True
                         break
 
                     buffer += chunk
@@ -2084,7 +2085,7 @@ class MalwareSandboxAnalyzer:
                 # Terminate python.exe AND cmd.exe on guest to release the
                 # stdout redirect handle (cmd.exe holds > file handle until exit)
                 self._log(
-                    "[*] Terminating guest agent processes to release log write locks..."
+                    "[*] Terminating guest agent processes to release log write logs..."
                 )
                 for proc_name in ["python.exe", "cmd.exe", "FakeNet.exe"]:
                     try:

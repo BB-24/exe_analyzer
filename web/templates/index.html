@@ -965,11 +965,20 @@ function handleSSEEvent(evt) {
 
 /* ── Log helpers ─────────────────────────────────────────────────── */
 function appendLog(msg) {
-  logLines.push(msg);
+  const lines = msg.split('\n');
   const t = new Date().toLocaleTimeString('en-GB', {hour12:false});
-  const html = colorLog(msg);
-  appendToLogBox('fullLog', `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`);
-  appendToLogBox('ovLog',   `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`);
+  let htmlFull = '';
+  let htmlOv = '';
+  for (const line of lines) {
+    if (!line) continue;
+    logLines.push(line);
+    const html = colorLog(line);
+    const logLineHtml = `<span style="color:hsl(var(--text-dim))">[${t}]</span> ${html}\n`;
+    htmlFull += logLineHtml;
+    htmlOv += logLineHtml;
+  }
+  appendToLogBox('fullLog', htmlFull);
+  appendToLogBox('ovLog', htmlOv);
 }
 
 function colorLog(msg) {
@@ -985,7 +994,7 @@ function colorLog(msg) {
 function appendToLogBox(id, html) {
   const box = document.getElementById(id);
   if (!box) return;
-  box.innerHTML += html;
+  box.insertAdjacentHTML('beforeend', html);
   box.scrollTop = box.scrollHeight;
 }
 function clearLogDOM(id) { const el = document.getElementById(id); if (el) el.innerHTML = ''; }

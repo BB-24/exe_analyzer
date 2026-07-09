@@ -1037,8 +1037,12 @@ class PDFReportBuilder:
         fs_data = telemetry.get("file_system_monitoring", {})
         created_files = fs_data.get("files_created", [])
         for f in created_files:
-            if f.lower().endswith(".exe") and "sample.exe" not in f.lower() and "two_phase_agents" not in f.lower() and "unified_agents" not in f.lower():
-                installed_path = f
+            if isinstance(f, dict):
+                path_val = f.get("path", "")
+            else:
+                path_val = str(f)
+            if path_val.lower().endswith(".exe") and "sample.exe" not in path_val.lower() and "two_phase_agents" not in path_val.lower() and "unified_agents" not in path_val.lower():
+                installed_path = path_val
                 break
                 
         if installed_path == "None Captured / Not Dropped":

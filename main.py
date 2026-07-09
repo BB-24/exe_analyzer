@@ -91,6 +91,26 @@ active_workflow_types: dict[str, str] = {}
 # PubSub handlers
 # ─────────────────────────────────────────────
 
+_pending_logs = {}  # sha256 -> list of log strings
+_pending_logs_lock = threading.Lock()
+
+def _flush_logs_loop():
+    while True:
+        time.sleep(0.1)  # Flush batch every 100ms
+        with _pending_logs_lock:
+            if not _pending_logs:
+                continue
+            to_flush = list(_pending_logs.items())
+            _pending_logs.clear()
+            
+        for sha256, logs in to_flush:
+            if logs:
+                combined_msg = "\n".join(logs)
+                _push_sse(sha256, "log", {"msg": combined_msg})
+
+threading.Thread(target=_flush_logs_loop, daemon=True).start()
+
+
 def handle_gui_log(msg: str):
     with active_session_lock:
         sha256 = active_session_sha256
@@ -98,7 +118,9 @@ def handle_gui_log(msg: str):
         return
     sess = _get_or_create_session(sha256)
     sess["logs"].append(msg)
-    _push_sse(sha256, "log", {"msg": msg})
+    
+    with _pending_logs_lock:
+        _pending_logs.setdefault(sha256.lower(), []).append(msg)
 
 
 def handle_gui_update_table(module: str, data):
