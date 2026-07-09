@@ -651,6 +651,7 @@ def get_sha256(path): return "N/A"
 
 def parse_kernel_logs(mode="detonate"):
     if not os.path.exists(CSV_LOG): return
+    created_exes = []
 
     with tracking_lock: root_pids = set(tracked_pids)
     child_map = {}
@@ -733,6 +734,8 @@ def parse_kernel_logs(mode="detonate"):
                     })
                 elif op == "CreateFile" and ("Disposition: Create" in detail or "OpenResult: Created" in detail):
                     size, entropy = get_file_info(path)
+                    if path.lower().endswith(".exe") and path not in created_exes:
+                        created_exes.append(path)
                     stream_log("FR-DYN-01", "FILE_CREATED", {
                         "timestamp": time_str, "pid": int(pid), "process_name": proc_name,
                         "target_path": path, "entropy": entropy, "analysis_phase": event_phase,
@@ -775,6 +778,24 @@ def parse_kernel_logs(mode="detonate"):
                         "verdict": "CLEAN"
                     })
     except Exception: pass
+
+    # Drop the installed file on desktop in auto-install mode
+    if mode == "auto-install" and created_exes:
+        installed_path = None
+        for f in created_exes:
+            f_lower = f.lower()
+            if "sample.exe" not in f_lower and "two_phase_agents" not in f_lower and "unified_agents" not in f_lower and "taskkill.exe" not in f_lower:
+                installed_path = f
+                break
+        if installed_path and os.path.exists(installed_path):
+            try:
+                import shutil
+                desktop_dir = f"C:\\Users\\{username}\\Desktop"
+                dest_path = os.path.join(desktop_dir, os.path.basename(installed_path))
+                shutil.copy2(installed_path, dest_path)
+                stream_log("SYSTEM", "INFO", f"Successfully dropped installed file on desktop: {dest_path}")
+            except Exception as copy_err:
+                stream_log("SYSTEM", "WARNING", f"Failed to drop installed file on desktop: {copy_err}")
 
 # ==========================================
 # INSTALLER UTILS & UI AUTO ENGINE

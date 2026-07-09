@@ -848,6 +848,8 @@ def parse_kernel_logs(mode="detonate"):
         stream_log("SYSTEM", "ERROR", "ProcMon CSV not found.")
         return
 
+    created_exes = []
+
     with tracking_lock:
         root_pids = set(tracked_pids)
 
@@ -1015,6 +1017,8 @@ def parse_kernel_logs(mode="detonate"):
                     })
                 elif op == "CreateFile" and ("Disposition: Create" in detail or "Disposition: New" in detail or "OpenResult: Created" in detail):
                     size, entropy = get_file_info(path)
+                    if path.lower().endswith(".exe") and path not in created_exes:
+                        created_exes.append(path)
                     is_notable = False
                     verdict = "CLEAN"
                     ext = os.path.splitext(path)[1].lower()
@@ -1267,6 +1271,24 @@ def parse_kernel_logs(mode="detonate"):
                     })
     except Exception as e:
         stream_log("SYSTEM", "ERROR", f"Pass 2 CSV parse failed: {e}")
+
+    # Drop the installed file on desktop in auto-install mode
+    if mode == "auto-install" and created_exes:
+        installed_path = None
+        for f in created_exes:
+            f_lower = f.lower()
+            if "sample.exe" not in f_lower and "two_phase_agents" not in f_lower and "unified_agents" not in f_lower and "taskkill.exe" not in f_lower:
+                installed_path = f
+                break
+        if installed_path and os.path.exists(installed_path):
+            try:
+                import shutil
+                desktop_dir = f"C:\\Users\\{username}\\Desktop"
+                dest_path = os.path.join(desktop_dir, os.path.basename(installed_path))
+                shutil.copy2(installed_path, dest_path)
+                stream_log("SYSTEM", "INFO", f"Successfully dropped installed file on desktop: {dest_path}")
+            except Exception as copy_err:
+                stream_log("SYSTEM", "WARNING", f"Failed to drop installed file on desktop: {copy_err}")
 
     stream_log("SYSTEM", "INFO", "Kernel trace parsing complete.")
 
