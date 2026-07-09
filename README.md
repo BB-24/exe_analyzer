@@ -39,30 +39,31 @@ graph TD
 - **Decoupled Detonation Queue**: Web requests return immediately with a `202 Queued` response while PyPubSub queues detonation analysis sequentially behind thread locks.
 - **Persistent SQLite Database**: Track analysis progress, timestamps, and overall threat scores automatically.
 - **Real-Time Ajax Refresh**: Web dashboard dynamically polls backend states every 2 seconds to transition row badges and threat progress indicators in real-time.
+- **Bifurcated (Two-Phase) Detonation**: Support for segregating execution into Phase 1 (Installer Wrapper) and Phase 2 (Main Payload) using a specialized two-phase sandbox agent (`two_phase_agents.py`) to dissect installers from their dropped payloads.
 
 ---
 
 ## File Walkthrough
 
 ### 1. Database Configuration
-* **[database/database.py](file:///c:/BHAVYA/Internship/MARS/database/database.py)**: Sets up the SQLAlchemy database engine pointing to `mars_history.db`. Utilizes thread-safe pools for SQLite compatibility across multiple FastAPI worker threads.
-* **[database/models.py](file:///c:/BHAVYA/Internship/MARS/database/models.py)**: Maps the `AnalysisHistory` database table. Automatically registers a PyPubSub listener subscribing to the `"analysis.log"` topic to save queue states and threat scores.
+* **[database/database.py](file:///c:/Users/HP/OneDrive/Desktop/CyberSec/exe_analyzer/database/database.py)**: Sets up the SQLAlchemy database engine pointing to `mars_history.db`. Utilizes thread-safe pools for SQLite compatibility across multiple FastAPI worker threads.
+* **[database/models.py](file:///c:/Users/HP/OneDrive/Desktop/CyberSec/exe_analyzer/database/models.py)**: Maps the `AnalysisHistory` database table. Automatically registers a PyPubSub listener subscribing to the `"analysis.log"` topic to save queue states and threat scores.
 
 ### 2. Control Routing
-* **[api/routes.py](file:///c:/BHAVYA/Internship/MARS/api/routes.py)**:
+* **[api/routes.py](file:///c:/Users/HP/OneDrive/Desktop/CyberSec/exe_analyzer/api/routes.py)**:
   - `POST /upload`: Handles file multi-part streams, calculates SHA-256 hashes, saves files inside the secure quarantine directory, and spawns background tasks.
   - `GET /api/history`: Provides JSON logs of all analysis runs for dynamic dashboard page updates.
 
 ### 3. Application Core & Event Bus
-* **[main.py](file:///c:/BHAVYA/Internship/MARS/main.py)**:
+* **[main.py](file:///c:/Users/HP/OneDrive/Desktop/CyberSec/exe_analyzer/main.py)**:
   - Initializes the FastAPI app, mounts local directories, and sets up template engines.
   - Subscribes to the `"analysis.trigger"`, `"scoring.result"`, and `"analysis.complete"` topics to synchronize sandbox runs.
   - Temporarily resolves extensions (e.g. mapping `hash.malz` to its original extension like `hash.exe` or `hash.zip`) to trigger PE static or package modules.
   - Boots the web server locally using `uvicorn`.
 
 ### 4. Interactive Frontend
-* **[web/templates/index.html](file:///c:/BHAVYA/Internship/MARS/web/templates/index.html)**: Cybersecurity-themed dark dashboard template. Integrates drag-and-drop file ingestion and registers AJAX updates.
-* **[web/static/css/tailwind.css](file:///c:/BHAVYA/Internship/MARS/web/static/css/tailwind.css)**: Local stylesheet mapping custom HSL palettes, glassmorphism card panels, pulsing badges, and custom animation sets.
+* **[web/templates/index.html](file:///c:/Users/HP/OneDrive/Desktop/CyberSec/exe_analyzer/web/templates/index.html)**: Cybersecurity-themed dark dashboard template. Integrates drag-and-drop file ingestion and registers AJAX updates.
+* **[web/static/css/tailwind.css](file:///c:/Users/HP/OneDrive/Desktop/CyberSec/exe_analyzer/web/static/css/tailwind.css)**: Local stylesheet mapping custom HSL palettes, glassmorphism card panels, pulsing badges, and custom animation sets.
 
 ---
 
@@ -85,6 +86,9 @@ MARS/
 |   `-- models.py            # AnalysisHistory ORM & PyPubSub DB listener
 |-- rules/
 |   `-- rules.yar            # Local YARA database signature compilation
+|-- sandbox_agents/
+|   |-- unified_agents.py    # Runs inside VM B for standard/single-phase detonation
+|   `-- two_phase_agents.py  # Runs inside VM B for bifurcated/two-phase detonation
 |-- web/
 |   |-- static/
 |   |   `-- css/
@@ -92,7 +96,7 @@ MARS/
 |   `-- templates/
 |       `-- index.html       # HTML UI dashboard page & AJAX poll script
 |-- workspace/
-|   `-- reports/             # Generated JSON/PDF detonation summaries (Other analysis directories are now stored in the host system's temporary directory)
+|   `-- reports/             # Generated JSON/PDF detonation summaries
 |-- main.py                  # Web application entrypoint
 |-- requirements.txt         # Dependencies
 `-- README.md

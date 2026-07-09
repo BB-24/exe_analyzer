@@ -17,8 +17,9 @@
 │  │                         │   │                             │ │
 │  │  • MARS FastAPI Server  │   │  • Sample detonation        │ │
 │  │  • Web Dashboard        │   │  • ProcMon kernel logger    │ │
-│  │  • vmrun orchestration  │   │  • unified_agents.py        │ │
-│  │  • Scapy network sniffer│   │  • COM1 serial telemetry    │ │
+│  │  • vmrun orchestration  │   │  • unified_agents.py /      │ │
+│  │  • Scapy network sniffer│   │    two_phase_agents.py      │ │
+│  │                         │   │  • COM1 serial telemetry    │ │
 │  │                         │   │                             │ │
 │  └──────────┬──────────────┘   └──────────────┬──────────────┘ │
 │             │                                  │                │
@@ -385,9 +386,9 @@ When a sample is submitted with "Full Detonation" selected, the pipeline execute
 | 2 | Powers on VM B | Windows boots |
 | 3 | Waits 15 s for VMware Tools to initialize | Tools handshake |
 | 4 | Copies `sample.exe` → `C:\Users\Administrator\Desktop\sample.exe` | — |
-| 5 | Copies `unified_agents.py` → `C:\Users\Administrator\Desktop\unified_agent.py` | — |
+| 5 | Copies `unified_agents.py` or `two_phase_agents.py` → `C:\Users\Administrator\Desktop\...agent.py` | — |
 | 6 | Starts Scapy sniffer on `vmnet1` | — |
-| 7 | Executes `C:\Python39\python.exe unified_agent.py` | Agent starts |
+| 7 | Executes the agent (`unified_agents.py` or `two_phase_agents.py`) via Python | Agent starts |
 | 8 | Reads telemetry from `\\.\pipe\sandbox_serial` | Streams `COM1` |
 | — | — | ProcMon captures kernel events |
 | — | — | Malware detonates |
@@ -513,7 +514,8 @@ MARS/
 │   ├── intake.py            ← File ingestion, unpacking, hashing
 │   └── package.py           ← Archive handler
 ├── sandbox_agents/
-│   └── unified_agents.py    ← Runs inside VM B during detonation
+│   ├── unified_agents.py    ← Runs inside VM B for standard/single-phase detonation
+│   └── two_phase_agents.py  ← Runs inside VM B for bifurcated/two-phase detonation
 ├── rules/
 │   └── rules.yar            ← YARA signatures
 ├── workspace/
