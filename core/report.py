@@ -541,9 +541,9 @@ class PDFReportBuilder:
             if imp_data:
                 apis = imp_data.get("APIs")
                 if isinstance(apis, list):
-                    suspicious_imps.extend(apis)
+                    suspicious_imps.extend([x for x in apis if x not in ("None detected", "None", "N/A", "")])
                 elif isinstance(apis, str) and apis != "N/A":
-                    suspicious_imps.extend([x.strip() for x in apis.split(",") if x.strip()])
+                    suspicious_imps.extend([x.strip() for x in apis.split(",") if x.strip() and x.strip() not in ("None detected", "None", "N/A", "")])
 
         unusual_sects = []
         for t, res in static_results.items():
@@ -567,10 +567,8 @@ class PDFReportBuilder:
                     pass
                 if is_unusual_perms or is_unusual_entropy:
                     clean_name = sect_name.replace("Section:", "").strip()
-                    reason = []
-                    if is_unusual_perms: reason.append("Writable + Executable perms (RWE)")
-                    if is_unusual_entropy: reason.append("High entropy (potential obfuscation/packing)")
-                    unusual_sects.append(f"• <b>{clean_name}</b> &mdash; Entropy: {entropy}, Permissions: {perms} ({', and '.join(reason)})")
+                    sect_color = "#dc2626" if is_unusual_perms else "#ea580c"
+                    unusual_sects.append(f"• <font color='{sect_color}'>{clean_name}</font>")
 
         # Check overall file entropy and compiler/packer
         overall_entropy_val = "N/A"
@@ -608,41 +606,74 @@ class PDFReportBuilder:
 
             if is_entropy_really_high:
                 overall_assessment += "<br/><br/><b>High File Entropy:</b>"
-                overall_assessment += f"<br/>• <font color='#dc2626'><b>Overall Entropy: {overall_entropy_val}</b></font> &mdash; Indicates potential obfuscation, packing, or encryption"
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                overall_assessment += f"<br/>• <font color='#ea580c'>Overall Entropy: {overall_entropy_val}</font>"
 
             if yara_rules:
                 overall_assessment += "<br/><br/><b>YARA Signatures Triggered:</b>"
-                for r in yara_rules:
-                    desc = get_yara_desc(r)
-                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{r}</b></font> &mdash; {desc}"
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                def get_yara_color(rules_str):
+                    critical_keywords = ["ransomware", "injection", "hollow", "trojan", "backdoor", "mimikatz", "credential", "keylogger", "malware", "exploit"]
+                    rules_lower = str(rules_str).lower()
+                    if any(kw in rules_lower for kw in critical_keywords):
+                        return "#dc2626"
+                    return "#ea580c"
+                for r in yara_rules[:5]:
+                    yara_color = get_yara_color(r)
+                    overall_assessment += f"<br/>• <font color='{yara_color}'>{r}</font>"
 
             if suspicious_imps:
                 overall_assessment += "<br/><br/><b>Suspicious API Imports:</b>"
-                for api in suspicious_imps:
-                    desc = api_explanations.get(api, "Suspicious Win32 API import capability")
-                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{api}</b></font> &mdash; {desc}"
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                def get_import_color(apis_str):
+                    critical_apis = ["virtualallocex", "writeprocessmemory", "createremotethread", "ntwritevirtualmemory", "zwunmapviewofsection", "ntunmapviewofsection", "adjusttokenprivileges"]
+                    apis_str_lower = str(apis_str).lower()
+                    if any(api in apis_str_lower for api in critical_apis):
+                        return "#dc2626"
+                    return "#ea580c"
+                for api in suspicious_imps[:5]:
+                    imp_color = get_import_color(api)
+                    overall_assessment += f"<br/>• <font color='{imp_color}'>{api}</font>"
 
             if unusual_sects:
                 overall_assessment += "<br/><br/><b>Suspicious PE Sections:</b>"
-                for sect_str in unusual_sects:
-                    overall_assessment += f"<br/><font color='#dc2626'>{sect_str}</font>"
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                for sect_str in unusual_sects[:5]:
+                    overall_assessment += f"<br/>{sect_str}"
 
             if unsigned_dlls:
                 overall_assessment += "<br/><br/><b>Unsigned DLLs Loaded during Sandbox Execution:</b>"
-                for dll in unsigned_dlls:
-                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{dll}</b></font> &mdash; Missing valid code signature"
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                def is_dll_critical(dll_name):
+                    dll_info = telemetry.get("dll_signature_monitoring", {})
+                    details = dll_info.get("details", [])
+                    for d in details:
+                        if d.get("dll_name") == dll_name:
+                            return bool(d.get("risk_indicators"))
+                    return False
+                for dll in unsigned_dlls[:5]:
+                    dll_color = "#dc2626" if is_dll_critical(dll) else "#ea580c"
+                    overall_assessment += f"<br/>• <font color='{dll_color}'>{dll}</font>"
 
             if high_conf:
                 overall_assessment += "<br/><br/><b>Persistence Established:</b>"
-                for item in high_conf:
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                for item in high_conf[:5]:
                     mech = item.get('mechanism', 'N/A')
-                    cat = item.get('category', 'N/A')
-                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{mech}</b></font> &mdash; Category: {cat}"
+                    target = item.get('target_path', 'N/A')
+                    cmd = item.get('command', 'N/A')
+                    is_critical_pers = is_user_directory(target) or is_user_directory(cmd)
+                    pers_color = "#dc2626" if is_critical_pers else "#ea580c"
+                    overall_assessment += f"<br/>• <font color='{pers_color}'>{mech}</font>"
 
             if active_domains:
                 overall_assessment += "<br/><br/><b>Outbound Network Connections:</b>"
-                for dom in active_domains[:10]:
-                    overall_assessment += f"<br/>• <font color='#dc2626'><b>{dom}</b></font> &mdash; Connection request logged"
+                overall_assessment += "<br/>(Refer to the particular section in the report)"
+                for dom in active_domains[:5]:
+                    dom_lower = dom.lower()
+                    is_critical_c2 = any(kw in dom_lower for kw in ["evil", "c2", "beacon", "payload"]) or re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', dom)
+                    net_color = "#dc2626" if is_critical_c2 else "#ea580c"
+                    overall_assessment += f"<br/>• <font color='{net_color}'>{dom}</font>"
 
         # Style the compiler/packer text for summary table
         cp_val = str(detected_compiler_or_packer)
@@ -792,8 +823,9 @@ class PDFReportBuilder:
                     perms_styled = f"<font color='#dc2626'><b>[!] {perms}</b></font>"
                     sect_name_styled = f"<font color='#dc2626'><b>{sect_name_styled}</b></font>"
                 if is_unusual_entropy:
-                    entropy_styled = f"<font color='#dc2626'><b>[!] {entropy}</b></font>"
-                    sect_name_styled = f"<font color='#dc2626'><b>{sect_name_styled}</b></font>"
+                    entropy_styled = f"<font color='#ea580c'><b>[!] {entropy}</b></font>"
+                    if not is_unusual_perms:
+                        sect_name_styled = f"<font color='#ea580c'><b>{sect_name_styled}</b></font>"
 
                 sect_rows.append([
                     Paragraph(sect_name_styled, self.normal),
@@ -825,7 +857,7 @@ class PDFReportBuilder:
                 pass
             
             if is_overall_entropy_high:
-                entropy_p = f"<font color='#dc2626'><b>[!] {file_entropy_val} (High - Indicates obfuscation/packing)</b></font>"
+                entropy_p = f"<font color='#ea580c'><b>[!] {file_entropy_val} (High - Indicates obfuscation/packing)</b></font>"
             else:
                 entropy_p = file_entropy_val
 
@@ -847,7 +879,7 @@ class PDFReportBuilder:
                         v_lower = v_str.lower()
                         
                         if any(kw in v_lower for kw in packer_keywords):
-                            styled_v = f"<font color='#dc2626'><b>[!] {v_str}</b></font>"
+                            styled_v = f"<font color='#ea580c'><b>[!] {v_str}</b></font>"
                         elif any(kw in v_lower for kw in compiler_keywords):
                             styled_v = f"<font color='#16a34a'><b>{v_str}</b></font>"
                         else:
@@ -899,11 +931,25 @@ class PDFReportBuilder:
             imp_data = file_data.get("Suspicious Imports", {})
             if imp_data:
                 imp_rows = []
+                def get_import_color(apis_str):
+                    critical_apis = ["virtualallocex", "writeprocessmemory", "createremotethread", "ntwritevirtualmemory", "zwunmapviewofsection", "ntunmapviewofsection", "adjusttokenprivileges"]
+                    apis_str_lower = str(apis_str).lower()
+                    if any(api in apis_str_lower for api in critical_apis):
+                        return "#dc2626"
+                    return "#ea580c"
+                apis_val = imp_data.get("APIs", "")
+                imp_color = get_import_color(apis_val) if apis_val and apis_val != "None detected" else "#1e293b"
                 for k, v in imp_data.items():
-                    imp_rows.append([
-                        Paragraph(f"<font color='#dc2626'><b>{k}</b></font>", self.normal_bold),
-                        Paragraph(str(v), self.normal)
-                    ])
+                    if k == "APIs" and v != "None detected":
+                        imp_rows.append([
+                            Paragraph(f"<font color='{imp_color}'><b>{k}</b></font>", self.normal_bold),
+                            Paragraph(f"<font color='{imp_color}'>{v}</font>", self.normal)
+                        ])
+                    else:
+                        imp_rows.append([
+                            Paragraph(f"<b>{k}</b>", self.normal_bold),
+                            Paragraph(str(v), self.normal)
+                        ])
                 t_imp = TableFormatter.build_table(
                     data=imp_rows,
                     col_widths=[150, 354],
@@ -955,10 +1001,18 @@ class PDFReportBuilder:
             yara_data = file_data.get("YARA Signatures", {})
             if yara_data:
                 yara_rows = []
+                def get_yara_color(rules_str):
+                    critical_keywords = ["ransomware", "injection", "hollow", "trojan", "backdoor", "mimikatz", "credential", "keylogger", "malware", "exploit"]
+                    rules_lower = str(rules_str).lower()
+                    if any(kw in rules_lower for kw in critical_keywords):
+                        return "#dc2626"
+                    return "#ea580c"
+                matched_rules = yara_data.get("Matched Rules") or yara_data.get("Rules", "")
+                yara_color = get_yara_color(matched_rules) if matched_rules and matched_rules != "Clean" else "#1e293b"
                 for k, v in yara_data.items():
                     val_str = str(v)
-                    if k.lower() in ("rules", "hits") and val_str != "0" and val_str != "N/A":
-                        val_str = f"<font color='#dc2626'><b>{val_str}</b></font>"
+                    if k.lower() in ("rules", "hits", "matched rules") and val_str != "0" and val_str != "N/A" and val_str != "Clean":
+                        val_str = f"<font color='{yara_color}'><b>{val_str}</b></font>"
                     yara_rows.append([
                         Paragraph(f"<b>{k}</b>", self.normal_bold),
                         Paragraph(val_str, self.normal)
@@ -1337,6 +1391,7 @@ class PDFReportBuilder:
                     if cmd and cmd != "N/A":
                         target_styled += f"<br/><font color='#b45309'>Cmd: {cmd}</font>"
                 else:
+                    target_styled = f"<font color='#ea580c'><b>[!] {target}</b></font>"
                     if cmd and cmd != "N/A":
                         target_styled += f"<br/><font color='#6B7280'>Cmd: {cmd}</font>"
                         
@@ -1564,15 +1619,24 @@ class PDFReportBuilder:
                 ]]
                 for dll in sorted_dlls:
                     sig_status = dll.get("signature_status", "UNKNOWN")
-                    sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
                     risk_indicators = dll.get("risk_indicators", [])
+                    if sig_status == "UNSIGNED":
+                        if risk_indicators:
+                            sig_color = "#dc2626"
+                            name_color = "#dc2626"
+                        else:
+                            sig_color = "#ea580c"
+                            name_color = "#ea580c"
+                    else:
+                        sig_color = "#16a34a"
+                        name_color = None
                     risk_text = ", ".join(risk_indicators) if risk_indicators else "None"
                     risk_styled = f"<font color='#dc2626'><b>{risk_text}</b></font>" if risk_indicators else "None"
                     dll_name = dll.get("dll_name", "Unknown")
                     dll_path = dll.get("dll_path", "N/A")
                     if sig_status == "UNSIGNED":
-                        name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
-                        path_p = Paragraph(f"<font color='#dc2626'>{dll_path}</font>", self.code_style)
+                        name_p = Paragraph(f"<font color='{name_color}'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                        path_p = Paragraph(f"<font color='{name_color}'>{dll_path}</font>", self.code_style)
                     else:
                         name_p = Paragraph(dll_name, self.normal)
                         path_p = Paragraph(dll_path, self.code_style)
@@ -1649,14 +1713,23 @@ class PDFReportBuilder:
                 sorted_p2 = sorted(p2_dlls, key=lambda x: x.get("signature_status", "UNKNOWN") != "UNSIGNED")
                 for dll in sorted_p2:
                     sig_status = dll.get("signature_status", "UNKNOWN")
-                    sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
                     risk_indicators = dll.get("risk_indicators", [])
+                    if sig_status == "UNSIGNED":
+                        if risk_indicators:
+                            sig_color = "#dc2626"
+                            name_color = "#dc2626"
+                        else:
+                            sig_color = "#ea580c"
+                            name_color = "#ea580c"
+                    else:
+                        sig_color = "#16a34a"
+                        name_color = None
                     risk_styled = f"<font color='#dc2626'><b>{', '.join(risk_indicators)}</b></font>" if risk_indicators else "None"
                     dll_name = dll.get("dll_name", "Unknown")
                     dll_path = dll.get("dll_path", "N/A")
                     if sig_status == "UNSIGNED":
-                        name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
-                        path_p = Paragraph(f"<font color='#dc2626'>{dll_path}</font>", self.code_style)
+                        name_p = Paragraph(f"<font color='{name_color}'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                        path_p = Paragraph(f"<font color='{name_color}'>{dll_path}</font>", self.code_style)
                     else:
                         name_p = Paragraph(dll_name, self.normal)
                         path_p = Paragraph(dll_path, self.code_style)
@@ -1668,14 +1741,14 @@ class PDFReportBuilder:
                         Paragraph(risk_styled, self.normal),
                     ])
 
-                # Append DLL drops (flagged red, type = File Drop)
+                # Append DLL drops (flagged orange, type = File Drop)
                 for dp in p2_dll_drops:
                     p2_combined_table_data.append([
-                        Paragraph(f"<font color='#dc2626'><b>[!] {os.path.basename(dp)}</b></font>", self.normal_bold),
+                        Paragraph(f"<font color='#ea580c'><b>[!] {os.path.basename(dp)}</b></font>", self.normal_bold),
                         Paragraph(dp, self.code_style),
-                        Paragraph("<font color='#dc2626'><b>File Drop</b></font>", self.normal_bold),
-                        Paragraph("<font color='#dc2626'><b>UNSIGNED</b></font>", self.normal),
-                        Paragraph("<font color='#dc2626'><b>DLL written to disk by payload</b></font>", self.normal),
+                        Paragraph("<font color='#ea580c'><b>File Drop</b></font>", self.normal_bold),
+                        Paragraph("<font color='#ea580c'><b>UNSIGNED</b></font>", self.normal),
+                        Paragraph("<font color='#ea580c'><b>DLL written to disk by payload</b></font>", self.normal),
                     ])
 
                 p2_combo_table = TableFormatter.build_table(
@@ -1705,8 +1778,10 @@ class PDFReportBuilder:
             for dll in sorted_hash_dlls:
                 dll_name = dll.get("dll_name", "Unknown")
                 sig_status = dll.get("signature_status", "UNKNOWN")
+                risk_indicators = dll.get("risk_indicators", [])
                 if sig_status == "UNSIGNED":
-                    name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                    color = "#dc2626" if risk_indicators else "#ea580c"
+                    name_p = Paragraph(f"<font color='{color}'><b>[!] {dll_name}</b></font>", self.normal_bold)
                 else:
                     name_p = Paragraph(dll_name, self.normal)
                 hash_data.append([
@@ -1736,16 +1811,25 @@ class PDFReportBuilder:
             ]]
             for dll in sorted_dlls:
                 sig_status = dll.get("signature_status", "UNKNOWN")
-                sig_color = "#dc2626" if sig_status == "UNSIGNED" else "#16a34a"
                 risk_indicators = dll.get("risk_indicators", [])
+                if sig_status == "UNSIGNED":
+                    if risk_indicators:
+                        sig_color = "#dc2626"
+                        name_color = "#dc2626"
+                    else:
+                        sig_color = "#ea580c"
+                        name_color = "#ea580c"
+                else:
+                    sig_color = "#16a34a"
+                    name_color = None
                 risk_text = ", ".join(risk_indicators) if risk_indicators else "None"
                 risk_styled = f"<font color='#dc2626'><b>{risk_text}</b></font>" if risk_indicators else "None"
 
                 dll_name = dll.get("dll_name", "Unknown")
                 dll_path = dll.get("dll_path", "N/A")
                 if sig_status == "UNSIGNED":
-                    name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
-                    path_p = Paragraph(f"<font color='#dc2626'>{dll_path}</font>", self.code_style)
+                    name_p = Paragraph(f"<font color='{name_color}'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                    path_p = Paragraph(f"<font color='{name_color}'>{dll_path}</font>", self.code_style)
                 else:
                     name_p = Paragraph(dll_name, self.normal)
                     path_p = Paragraph(dll_path, self.code_style)
@@ -1781,8 +1865,10 @@ class PDFReportBuilder:
             for dll in sorted_hash_dlls:
                 dll_name = dll.get("dll_name", "Unknown")
                 sig_status = dll.get("signature_status", "UNKNOWN")
+                risk_indicators = dll.get("risk_indicators", [])
                 if sig_status == "UNSIGNED":
-                    name_p = Paragraph(f"<font color='#dc2626'><b>[!] {dll_name}</b></font>", self.normal_bold)
+                    color = "#dc2626" if risk_indicators else "#ea580c"
+                    name_p = Paragraph(f"<font color='{color}'><b>[!] {dll_name}</b></font>", self.normal_bold)
                 else:
                     name_p = Paragraph(dll_name, self.normal)
                 hash_data.append([
@@ -1841,11 +1927,14 @@ class PDFReportBuilder:
                     is_suspicious_net = is_outbound
 
                     if is_suspicious_net:
+                        action_lower = action.lower()
+                        is_critical_c2 = any(kw in action_lower for kw in ["evil", "c2", "beacon", "payload"]) or re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', action)
+                        net_color = "#dc2626" if is_critical_c2 else "#ea580c"
                         net_table_data.append([
-                            Paragraph(f"<font color='#dc2626'><b>{proto}</b></font>", self.normal),
-                            Paragraph(f"<font color='#dc2626'><b>{port}</b></font>", self.normal),
-                            Paragraph(f"<font color='#dc2626'><b>{direct}</b></font>", self.normal),
-                            Paragraph(f"<font color='#dc2626'><b>[!] {action}</b></font>", self.code_style),
+                            Paragraph(f"<font color='{net_color}'><b>{proto}</b></font>", self.normal),
+                            Paragraph(f"<font color='{net_color}'><b>{port}</b></font>", self.normal),
+                            Paragraph(f"<font color='{net_color}'><b>{direct}</b></font>", self.normal),
+                            Paragraph(f"<font color='{net_color}'><b>[!] {action}</b></font>", self.code_style),
                         ])
                     else:
                         net_table_data.append([
@@ -1906,11 +1995,14 @@ class PDFReportBuilder:
                 is_suspicious_net = is_outbound
 
                 if is_suspicious_net:
+                    action_lower = action.lower()
+                    is_critical_c2 = any(kw in action_lower for kw in ["evil", "c2", "beacon", "payload"]) or re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', action)
+                    net_color = "#dc2626" if is_critical_c2 else "#ea580c"
                     net_table_data.append([
-                        Paragraph(f"<font color='#dc2626'><b>{proto}</b></font>", self.normal),
-                        Paragraph(f"<font color='#dc2626'><b>{port}</b></font>", self.normal),
-                        Paragraph(f"<font color='#dc2626'><b>{direct}</b></font>", self.normal),
-                        Paragraph(f"<font color='#dc2626'><b>[!] {action}</b></font>", self.code_style),
+                        Paragraph(f"<font color='{net_color}'><b>{proto}</b></font>", self.normal),
+                        Paragraph(f"<font color='{net_color}'><b>{port}</b></font>", self.normal),
+                        Paragraph(f"<font color='{net_color}'><b>{direct}</b></font>", self.normal),
+                        Paragraph(f"<font color='{net_color}'><b>[!] {action}</b></font>", self.code_style),
                     ])
                 else:
                     net_table_data.append([

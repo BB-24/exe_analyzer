@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import json
 import queue
 import shutil
@@ -960,4 +961,4 @@ async def read_report(request: Request, sha256: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="localhost", port=8000)
