@@ -801,9 +801,14 @@ document.getElementById('analysis_type').addEventListener('change', (e) => {
   const isStatic = val === 'static_only';
   const isBifurcated = val === 'bifurcated';
   
-  document.getElementById('duration_wrapper').style.display  = isStatic ? 'none' : 'block';
-  document.getElementById('run_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
-  document.getElementById('detonation_mode_wrapper').style.display  = isStatic ? 'none' : 'block';
+  const durWrap = document.getElementById('duration_wrapper');
+  if (durWrap) durWrap.style.display = isStatic ? 'none' : 'block';
+  
+  const runWrap = document.getElementById('run_mode_wrapper');
+  if (runWrap) runWrap.style.display = isStatic ? 'none' : 'block';
+  
+  const detWrap = document.getElementById('detonation_mode_wrapper');
+  if (detWrap) detWrap.style.display = isStatic ? 'none' : 'block';
   
   const durSelect = document.getElementById('analysis_duration');
   if (durSelect) {
