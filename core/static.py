@@ -45,10 +45,24 @@ class StaticModule:
         pub.sendMessage("gui.log", msg="\n[+] --- Starting Static Analysis Module ---")
         
         try:
-            pe = pefile.PE(filepath)
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            pe = pefile.PE(data=file_data)
             results = {}
             
+            # Calculate overall file entropy
+            overall_entropy = self._calculate_entropy(file_data)
+            detected_packer = self._detect_packer(pe, overall_entropy)
+            
+            pub.sendMessage("gui.log", msg=f"[*] Overall File Entropy: {overall_entropy:.4f}")
+            pub.sendMessage("gui.log", msg=f"[*] Detected Packer Heuristics: {detected_packer}")
+            
             self._analyze_pe_headers(pe, results)        # FR-STA-02
+            
+            # Inject overall entropy and detected packer into PE Headers results
+            if "PE Headers" in results:
+                results["PE Headers"]["Overall File Entropy"] = f"{overall_entropy:.4f}"
+                results["PE Headers"]["Detected Packer"] = detected_packer
             self._analyze_mitigations(pe, results)       # FR-STA-03
             self._analyze_sections(pe, results)          # FR-STA-04 & 08
             self._analyze_imports(pe, results)           # FR-STA-05
@@ -236,6 +250,84 @@ class StaticModule:
                 entropy += - p_x * math.log(p_x, 2)
                 
         return entropy
+
+    def _detect_packer(self, pe, file_entropy):
+        """Heuristically detects standard packers or compilers using PE section names, imports, and entropy."""
+        # 1. Section Name-based Packer/Protector Detection
+        for section in pe.sections:
+            try:
+                name = section.Name.decode('utf-8', errors='ignore').strip('\x00').upper()
+            except Exception:
+                continue
+            if "UPX" in name:
+                return "UPX Packer"
+            if "ASPACK" in name:
+                return "ASPack Protector"
+            if "PEC" in name:
+                return "PECompact Packer"
+            if "THEMIDA" in name or "VMP" in name or ".VMP" in name:
+                return "Themida / VMProtect"
+            if "PELOCK" in name:
+                return "PELock Protector"
+            if "FSG" in name:
+                return "FSG Packer"
+            if "PETITE" in name:
+                return "Petite Packer"
+            if "ENIGMA" in name:
+                return "Enigma Protector"
+            if "_MEI" in name:
+                return "PyInstaller Package"
+
+        # 2. Section Name-based Compiler Detection
+        sections = []
+        for section in pe.sections:
+            try:
+                name = section.Name.decode('utf-8', errors='ignore').strip('\x00').lower()
+                sections.append(name)
+            except Exception:
+                pass
+
+        if ".gopclntab" in sections or ".go.buildinfo" in sections:
+            return "Go Compiler"
+
+        if ".rustc" in sections or "rust" in "".join(sections):
+            return "Rust Compiler"
+
+        if "code" in sections and "data" in sections and "bss" in sections:
+            return "Delphi / Embarcadero"
+
+        # 3. Import-based Compiler Detection (MinGW and MSVC)
+        is_mingw = False
+        is_msvc = False
+        
+        if hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
+            for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                dll_name = entry.dll.decode('utf-8', errors='ignore').lower() if entry.dll else ""
+                
+                # Check MinGW signature functions
+                for imp in entry.imports:
+                    imp_name = imp.name.decode('utf-8', errors='ignore') if imp.name else ""
+                    if imp_name.startswith("__mingw_") or imp_name.startswith("__gnu_"):
+                        is_mingw = True
+                        break
+                
+                # Check standard MSVC runtime DLLs
+                if any(x in dll_name for x in ["msvcr", "vcruntime", "msvcp", "api-ms-win-crt"]):
+                    is_msvc = True
+                
+                if is_mingw:
+                    break
+
+        if is_mingw:
+            return "MinGW (GCC)"
+        if is_msvc:
+            return "Microsoft Visual C++ (MSVC)"
+
+        # 4. Fallback to high entropy indicator
+        if file_entropy > 7.2:
+            return "Unknown Packer (High Entropy)"
+        
+        return "None Detected"
 
     # ==========================================
     # FR-STA-05: Suspicious Import Tracking

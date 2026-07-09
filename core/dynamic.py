@@ -743,10 +743,10 @@ class MalwareSandboxAnalyzer:
 
         # Function 2: File and Folder Modifications Simulation
         self.file_data["files_created"].append(
-            "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe"
+            {"path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\dropped_payload.exe", "phase": "INSTALLER_WRAPPER"}
         )
         self.file_data["files_modified"].append(
-            "C:\\Windows\\System32\\drivers\\etc\\hosts"
+            {"path": "C:\\Windows\\System32\\drivers\\etc\\hosts", "phase": "INSTALLER_WRAPPER"}
         )
         self.file_data["total_changes"] = 2
 
@@ -879,26 +879,33 @@ class MalwareSandboxAnalyzer:
                 event_str = f"[{event_type}] Path: {path}"
 
             if event_type == "FILE_CREATED":
-                if path not in self.file_data["files_created"]:
-                    self.file_data["files_created"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["files_created"]):
+                    self.file_data["files_created"].append(entry)
             elif event_type == "FILE_MODIFIED":
-                if path not in self.file_data["files_modified"]:
-                    self.file_data["files_modified"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["files_modified"]):
+                    self.file_data["files_modified"].append(entry)
             elif event_type == "FILE_DELETED":
-                if path not in self.file_data["files_deleted"]:
-                    self.file_data["files_deleted"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["files_deleted"]):
+                    self.file_data["files_deleted"].append(entry)
             elif event_type == "FILE_RENAMED":
-                if path not in self.file_data["files_renamed"]:
-                    self.file_data["files_renamed"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["files_renamed"]):
+                    self.file_data["files_renamed"].append(entry)
             elif event_type == "DIR_CREATED":
-                if path not in self.file_data["folders_created"]:
-                    self.file_data["folders_created"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["folders_created"]):
+                    self.file_data["folders_created"].append(entry)
             elif event_type == "DIR_MODIFIED":
-                if path not in self.file_data["folders_modified"]:
-                    self.file_data["folders_modified"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["folders_modified"]):
+                    self.file_data["folders_modified"].append(entry)
             elif event_type == "DIR_DELETED":
-                if path not in self.file_data["folders_deleted"]:
-                    self.file_data["folders_deleted"].append(path)
+                entry = {"path": path, "phase": phase}
+                if not any(e["path"] == path for e in self.file_data["folders_deleted"]):
+                    self.file_data["folders_deleted"].append(entry)
 
             self.file_data["total_changes"] = (
                 len(self.file_data["files_created"])
@@ -2726,15 +2733,19 @@ class DynamicController:
         else:
             fs_mon = report_dict.get("file_system_monitoring", {})
             for f in fs_mon.get("files_created", []):
+                fp = f["path"] if isinstance(f, dict) else f
                 self._route_event(
-                    "Filesystem", f"[FILE_CREATED] [FILE_DROP] Created file: {f}"
+                    "Filesystem", f"[FILE_CREATED] [FILE_DROP] Created file: {fp}"
                 )
             for f in fs_mon.get("files_modified", []):
-                self._route_event("Filesystem", f"[FILE_MODIFIED] Modified file: {f}")
+                fp = f["path"] if isinstance(f, dict) else f
+                self._route_event("Filesystem", f"[FILE_MODIFIED] Modified file: {fp}")
             for f in fs_mon.get("files_deleted", []):
-                self._route_event("Filesystem", f"[FILE_DELETED] Deleted file: {f}")
+                fp = f["path"] if isinstance(f, dict) else f
+                self._route_event("Filesystem", f"[FILE_DELETED] Deleted file: {fp}")
             for f in fs_mon.get("files_renamed", []):
-                self._route_event("Filesystem", f"[FILE_RENAMED] Renamed file: {f}")
+                fp = f["path"] if isinstance(f, dict) else f
+                self._route_event("Filesystem", f"[FILE_RENAMED] Renamed file: {fp}")
 
         # 2. Registry
         if analyzer.rich_telemetry.get("Registry"):
