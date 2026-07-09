@@ -646,8 +646,31 @@ def get_file_info(path):
     try: return os.path.getsize(path), calculate_entropy(path)
     except Exception: return 0, 0.0
 
-def check_dll_signature(path): return "UNSIGNED"
-def get_sha256(path): return "N/A"
+def check_dll_signature(path):
+    if not os.path.exists(path):
+        return "UNSIGNED"
+    try:
+        res = subprocess.run([
+            "powershell", "-Command",
+            f"(Get-AuthenticodeSignature '{path}').Status"
+        ], capture_output=True, text=True)
+        status = res.stdout.strip()
+        return "SIGNED" if status == "Valid" else "UNSIGNED"
+    except Exception:
+        return "UNSIGNED"
+
+def get_sha256(path):
+    import hashlib
+    if not os.path.exists(path):
+        return "N/A"
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return "N/A"
 
 def parse_kernel_logs(mode="detonate"):
     if not os.path.exists(CSV_LOG): return
@@ -764,10 +787,25 @@ def parse_kernel_logs(mode="detonate"):
 
                 # 5. DLL Loading
                 elif op == "Load Image" and path.lower().endswith(".dll"):
+                    sig = check_dll_signature(path)
+                    sha = get_sha256(path)
+                    risk_indicators = []
+                    is_notable = False
+                    verdict = "CLEAN"
+                    if sig == "UNSIGNED":
+                        risk_indicators.append("Unsigned binary execution")
+                        is_notable = True
+                        verdict = "SUSPICIOUS"
+                    if "temp" in path.lower() or "appdata" in path.lower():
+                        risk_indicators.append("Loaded from temp directory")
+                        is_notable = True
+                        verdict = "SUSPICIOUS"
+
                     stream_log("FR-DYN-05", "DLL_LOAD", {
                         "timestamp": time_str, "pid": int(pid), "process_name": proc_name,
-                        "dll_name": os.path.basename(path), "dll_path": path, "analysis_phase": event_phase,
-                        "verdict": "CLEAN"
+                        "dll_name": os.path.basename(path), "dll_path": path, "signature_status": sig,
+                        "sha256": sha, "risk_indicators": risk_indicators, "analysis_phase": event_phase,
+                        "verdict": verdict
                     })
 
                 # 6. Network Interactions

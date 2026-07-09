@@ -145,5 +145,3 @@ rules/*.yrc
 wheels_dir/
 workspace/*.png
 mars_history.db
-
-MARS-Wireshark-4.6.6-x64.exe-4E5C42_Report.pdf
