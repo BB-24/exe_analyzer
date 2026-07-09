@@ -105,6 +105,20 @@ class GraphGenerator:
             plt.plot(timestamps, cpu_percents, color='#1e3a8a', linewidth=2, label='CPU Usage (%)')
             plt.fill_between(timestamps, cpu_percents, color='#1e3a8a', alpha=0.15, label='CPU Area')
             
+            # Draw vertical line at Phase 2 Payload transition
+            transition_time = None
+            for r in resource_series:
+                if isinstance(r, dict) and r.get("phase") == "MAIN_PAYLOAD":
+                    transition_time = r.get("elapsed_seconds")
+                    break
+            if transition_time is None and len(resource_series) > 150:
+                for r in resource_series:
+                    if isinstance(r, dict) and r.get("elapsed_seconds", 0) >= 300:
+                        transition_time = r.get("elapsed_seconds")
+                        break
+            if transition_time is not None:
+                plt.axvline(x=transition_time, color='#dc2626', linestyle='--', linewidth=1.5, label='Phase 2 (Payload) Start')
+            
             plt.title("CPU Utilization Profile", fontsize=12, color='#1e3a8a', pad=15, fontweight='bold')
             plt.xlabel("Elapsed Time (seconds)", fontsize=9, color='#1e293b')
             plt.ylabel("CPU Usage (%)", fontsize=9, color='#1e293b')
@@ -425,6 +439,7 @@ class MalwareSandboxAnalyzer:
         self.headless = False  # VM always runs in interactive GUI mode
         self.mode = mode  # "detonate" or "auto-install"
         self.target_pid = None
+        self.current_phase = "INSTALLER_WRAPPER"
         self.process_tree_flat = []
         self.monitored_pids = set()
         self.is_running = False
@@ -623,6 +638,7 @@ class MalwareSandboxAnalyzer:
                     total_ram = 2203648 + random.randint(-16384, 16384)
                     total_cpu = max(0.0, round(random.uniform(0.1, 2.5), 2))
 
+            phase = self.current_phase if hasattr(self, "current_phase") else "INSTALLER_WRAPPER"
             self.resource_series.append(
                 {
                     "elapsed_seconds": elapsed,
@@ -630,6 +646,7 @@ class MalwareSandboxAnalyzer:
                     "memory_bytes": total_ram,
                     "disk_write_bytes_sec": 0,  # In production, integrated via ETW or Disk IRPs
                     "network_send_bytes_sec": 0,
+                    "phase": phase,
                 }
             )
 
@@ -855,6 +872,8 @@ class MalwareSandboxAnalyzer:
                 is_json = True
             except Exception:
                 pass
+        if is_json:
+            self.current_phase = event_data.get("analysis_phase", self.current_phase)
 
         # 1. Filesystem Mutations (FR-DYN-01)
         if tag == "FR-DYN-01":
@@ -1371,6 +1390,7 @@ class MalwareSandboxAnalyzer:
                     cpu_val = event_data.get("cpu_percent", 0.0)
                     ram_percent = event_data.get("ram_percent", 0.0)
                     net_out = event_data.get("net_out_kb_sec", 0.0) * 1024
+                    phase = event_data.get("analysis_phase", self.current_phase)
 
                     memory_bytes = int(2147483648 * ram_percent / 100)
                     self.resource_series.append(
@@ -1380,6 +1400,7 @@ class MalwareSandboxAnalyzer:
                             "memory_bytes": memory_bytes,
                             "disk_write_bytes_sec": 0,
                             "network_send_bytes_sec": int(net_out),
+                            "phase": phase,
                         }
                     )
                     event_str = f"[{event_type}] CPU: {cpu_val}% | RAM: {ram_percent}% | Net Out: {net_out / 1024:.1f} KB/s"
