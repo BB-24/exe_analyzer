@@ -603,7 +603,7 @@ class PDFReportBuilder:
         # Format and append findings with beautiful headers and line splits
         has_findings = bool(yara_rules or suspicious_imps or unusual_sects or unsigned_dlls or high_conf or active_domains or is_entropy_really_high)
         if has_findings:
-            overall_assessment += "<br/><br/><font size='10'><b>[!] UNUSUAL FINDINGS SUMMARY (VERIFY RECOMMENDED)</b></font>"
+            overall_assessment += "<br/><br/><font size='10'><b> UNUSUAL FINDINGS (VERIFICATION RECOMMENDED)</b></font>"
             overall_assessment += "<br/><font color='#cbd5e1'>--------------------------------------------------------------------------------</font>"
 
             if is_entropy_really_high:
