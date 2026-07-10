@@ -109,6 +109,15 @@ class DataCleaner:
             val /= 1024.0
         return f"{val:.2f} TB"
 
+    @staticmethod
+    def is_user_directory(s: Any) -> bool:
+        """Determines if a string contains references to user directories or temp paths."""
+        if not s:
+            return False
+        s_lower = str(s).lower()
+        return any(dir_name in s_lower for dir_name in ["appdata", "roaming", "local\\temp", "\\temp\\", "users\\public", "programdata", "desktop", "downloads"])
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TABLE FORMATTING & PAGINATION UTILITIES
@@ -662,7 +671,7 @@ class PDFReportBuilder:
                     mech = item.get('mechanism', 'N/A')
                     target = item.get('target_path', 'N/A')
                     cmd = item.get('command', 'N/A')
-                    is_critical_pers = is_user_directory(target) or is_user_directory(cmd)
+                    is_critical_pers = DataCleaner.is_user_directory(target) or DataCleaner.is_user_directory(cmd)
                     pers_color = "#dc2626" if is_critical_pers else "#ea580c"
                     overall_assessment += f"<br/>• <font color='{pers_color}'>{mech}</font>"
 
@@ -1147,8 +1156,10 @@ class PDFReportBuilder:
                 ev_upper = ev_str.upper()
                 if "DELETE" in ev_upper:
                     reg_deleted_cnt += 1
-                elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper:
+                elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper or "SECURITY_MODIFIED" in ev_upper:
                     reg_added_cnt += 1
+                elif "QUERY" in ev_upper:
+                    pass
                 else:
                     reg_modified_cnt += 1
                 
@@ -1170,8 +1181,10 @@ class PDFReportBuilder:
                     ev_upper = str(ev).upper()
                     if "DELETE" in ev_upper:
                         reg_deleted_cnt += 1
-                    elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper:
+                    elif "WRITE" in ev_upper or "ADD" in ev_upper or "CREATE" in ev_upper or "SECURITY_MODIFIED" in ev_upper:
                         reg_added_cnt += 1
+                    elif "QUERY" in ev_upper:
+                        pass
                     elif "MODIFY" in ev_upper or "MUTATED" in ev_upper:
                         reg_modified_cnt += 1
                     else:
@@ -1235,7 +1248,7 @@ class PDFReportBuilder:
                 ev_upper = ev_str.upper()
                 if "DELETE" in ev_upper:
                     fs_deleted_cnt += 1
-                elif "CREATE" in ev_upper or "DROP" in ev_upper:
+                elif "CREATE" in ev_upper or "DROP" in ev_upper or "ADS_DETECTED" in ev_upper or "OVERWRITE" in ev_upper:
                     fs_created_cnt += 1
                 else:
                     fs_modified_cnt += 1
@@ -1259,7 +1272,7 @@ class PDFReportBuilder:
             else:
                 for ev in telemetry.get("Filesystem", []):
                     ev_upper = str(ev).upper()
-                    if "CREATE" in ev_upper or "DROP" in ev_upper:
+                    if "CREATE" in ev_upper or "DROP" in ev_upper or "ADS_DETECTED" in ev_upper or "OVERWRITE" in ev_upper:
                         fs_created_cnt += 1
                     elif "DELETE" in ev_upper:
                         fs_deleted_cnt += 1
@@ -1296,7 +1309,7 @@ class PDFReportBuilder:
                             folder_deleted += 1
                         else:
                             file_deleted += 1
-                    elif "CREATE" in ev_upper or "DROP" in ev_upper:
+                    elif "CREATE" in ev_upper or "DROP" in ev_upper or "ADS_DETECTED" in ev_upper or "OVERWRITE" in ev_upper:
                         if is_folder:
                             folder_created += 1
                         else:
@@ -1358,18 +1371,12 @@ class PDFReportBuilder:
                 high_conf = pers_data.get("high_confidence_persistence", [])
                 low_conf = pers_data.get("low_confidence_noise", [])
         
-        def is_user_directory(s):
-            if not s:
-                return False
-            s_lower = str(s).lower()
-            return any(dir_name in s_lower for dir_name in ["appdata", "roaming", "local\\temp", "\\temp\\", "users\\public", "programdata", "desktop", "downloads"])
-
         if has_new_schema:
             # Sort high_conf so flagged ones (suspicious paths/user directory) come first
             def is_flagged(item):
                 target = item.get("target_path", "N/A")
                 cmd = item.get("command", "N/A")
-                return is_user_directory(target) or is_user_directory(cmd)
+                return DataCleaner.is_user_directory(target) or DataCleaner.is_user_directory(cmd)
             high_conf = sorted(high_conf, key=lambda x: not is_flagged(x))
 
             # 1. High Confidence Persistence Table
@@ -1386,7 +1393,7 @@ class PDFReportBuilder:
                 target = item.get("target_path", "N/A")
                 cmd = item.get("command", "N/A")
                 target_styled = target
-                if is_user_directory(target) or is_user_directory(cmd):
+                if DataCleaner.is_user_directory(target) or DataCleaner.is_user_directory(cmd):
                     target_styled = f"<font color='#dc2626'><b>[!] {target}</b></font>"
                     if cmd and cmd != "N/A":
                         target_styled += f"<br/><font color='#b45309'>Cmd: {cmd}</font>"
@@ -1394,6 +1401,7 @@ class PDFReportBuilder:
                     target_styled = f"<font color='#ea580c'><b>[!] {target}</b></font>"
                     if cmd and cmd != "N/A":
                         target_styled += f"<br/><font color='#6B7280'>Cmd: {cmd}</font>"
+                        
                         
                 high_rows.append([
                     Paragraph(item.get("category", "N/A"), self.normal),
@@ -1729,6 +1737,10 @@ class PDFReportBuilder:
                             p = m.group(1).strip().rstrip(",")
                             if p.lower().endswith(".dll"):
                                 p2_dll_drops.append(p)
+
+            # Deduplicate DLL drops that are already in p2_dlls runtime loads
+            p2_dll_paths = {d.get("dll_path", "").lower() for d in p2_dlls if d.get("dll_path")}
+            p2_dll_drops = [dp for dp in p2_dll_drops if dp.lower() not in p2_dll_paths]
 
             # Build combined table: runtime loads + disk drops
             has_p2_content = p2_dlls or p2_dll_drops

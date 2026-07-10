@@ -952,7 +952,13 @@ class MalwareSandboxAnalyzer:
                 verdict = event_data.get("verdict", "CLEAN")
 
                 full_path = f"{key_path}\\{value_name}" if value_name else key_path
-                event_str = f"[{event_type}] Key: {key_path} | Value: {value_name} -> {val_data} (Type: {val_type}, PID: {pid}, Process: {proc_name}, Verdict: {verdict})"
+                if event_type == "REG_QUERY":
+                    query_op = event_data.get("query_operation", "RegQueryValue")
+                    is_missing = event_data.get("is_missing", False)
+                    missing_str = " (Name Not Found)" if is_missing else ""
+                    event_str = f"[{event_type}] Key: {key_path} | Operation: {query_op}{missing_str} | PID: {pid} (Process: {proc_name}) | Verdict: {verdict}"
+                else:
+                    event_str = f"[{event_type}] Key: {key_path} | Value: {value_name} -> {val_data} (Type: {val_type}, PID: {pid}, Process: {proc_name}, Verdict: {verdict})"
             else:
                 full_path = ""
                 key_path = ""
@@ -984,12 +990,12 @@ class MalwareSandboxAnalyzer:
             elif event_type == "REG_DELETED":
                 if full_path not in self.registry_data["keys_deleted"]:
                     self.registry_data["keys_deleted"].append(full_path)
-            elif event_type in ("REG_MODIFIED", "REG_WRITE"):
+            elif event_type in ("REG_MODIFIED", "REG_WRITE", "REG_SECURITY_MODIFIED"):
                 target_list = (
                     "values_added" if event_type == "REG_WRITE" else "values_modified"
                 )
                 self.registry_data[target_list].append(
-                    {"path": full_path, "data": val_data, "type": val_type}
+                    {"path": full_path, "data": val_data or "Security permissions modified", "type": val_type or "REG_DACL"}
                 )
 
             self.registry_data["total_changes"] = (
@@ -1071,37 +1077,63 @@ class MalwareSandboxAnalyzer:
 
         # 4. Process monitoring (FR-DYN-04)
         elif tag == "FR-DYN-04":
+            phase = event_data.get("analysis_phase", "INSTALLER_WRAPPER") if is_json else "INSTALLER_WRAPPER"
             if is_json:
                 pid_val = event_data.get("pid", 0)
                 ppid_val = event_data.get("ppid", 0)
                 name_val = event_data.get("process_name", "")
                 cmd_val = event_data.get("command_line", "")
                 verdict = event_data.get("verdict", "CLEAN")
+                event_type = event_data.get("event_type", event_type)
 
-                event_str = f"[{event_type}] PID: {pid_val} | PPID: {ppid_val} | Name: {name_val} | Cmd: {cmd_val} | Verdict: {verdict}"
-                try:
-                    pid_int = int(pid_val)
-                    ppid_int = int(ppid_val) if ppid_val else 0
-                    self.monitored_pids.add(pid_int)
-                    if event_type == "PROCESS_ROOT":
-                        self.target_pid = pid_int
-                    elif event_type == "PROCESS_SPAWN":
-                        if not any(
-                            proc["pid"] == pid_int for proc in self.process_tree_flat
-                        ):
-                            self.process_tree_flat.append(
-                                {
-                                    "pid": pid_int,
-                                    "ppid": ppid_int,
-                                    "process_name": name_val,
-                                    "command_line": cmd_val,
-                                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                                    "children": [],
-                                }
-                            )
-                except ValueError:
-                    pass
+                if event_type in ("REMOTE_THREAD_CREATE", "CROSS_PROCESS_INJECTION"):
+                    source_pid = event_data.get("source_pid", pid_val)
+                    source_process = event_data.get("source_process", name_val)
+                    target_pid = event_data.get("target_pid", 0)
+                    event_str = f"[{event_type}] Source PID: {source_pid} ({source_process}) injected remote thread into Target PID: {target_pid} | Verdict: {verdict}"
+                    
+                    # Also append a MEMORY_INJECT record to loaded_dlls
+                    self.loaded_dlls.append(
+                        {
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "loading_process_pid": target_pid or (self.target_pid or 4092),
+                            "dll_name": "Remote Thread Injection",
+                            "dll_path": f"Target PID: {target_pid} (Source PID: {source_pid})",
+                            "signature_status": "MEM_INJECT",
+                            "sha256": "Cross-Process Injection",
+                            "risk_indicators": ["Remote Thread Creation / Injection"],
+                            "analysis_phase": phase,
+                        }
+                    )
+                elif event_type == "PROCESS_EXIT":
+                    exit_code = event_data.get("exit_code", 0)
+                    event_str = f"[{event_type}] PID: {pid_val} | Process: {name_val} exited with status {exit_code} | Verdict: {verdict}"
+                else:
+                    event_str = f"[{event_type}] PID: {pid_val} | PPID: {ppid_val} | Name: {name_val} | Cmd: {cmd_val} | Verdict: {verdict}"
+                    try:
+                        pid_int = int(pid_val)
+                        ppid_int = int(ppid_val) if ppid_val else 0
+                        self.monitored_pids.add(pid_int)
+                        if event_type == "PROCESS_ROOT":
+                            self.target_pid = pid_int
+                        elif event_type == "PROCESS_SPAWN":
+                            if not any(
+                                proc["pid"] == pid_int for proc in self.process_tree_flat
+                            ):
+                                self.process_tree_flat.append(
+                                    {
+                                        "pid": pid_int,
+                                        "ppid": ppid_int,
+                                        "process_name": name_val,
+                                        "command_line": cmd_val,
+                                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                                        "children": [],
+                                    }
+                                )
+                    except ValueError:
+                        pass
             else:
+                event_str = f"[{event_type}] {detail}"
                 if event_type == "PROCESS_ROOT":
                     pid = detail
                     if detail.startswith("PID:"):
@@ -1164,7 +1196,8 @@ class MalwareSandboxAnalyzer:
                 proc_name = event_data.get("process_name", "N/A")
                 verdict = event_data.get("verdict", "CLEAN")
 
-                if event_type == "DLL_LOAD":
+                event_type = event_data.get("event_type", event_type)
+                if event_type in ("DLL_LOAD", "DLL_DROPPED"):
                     path_val = event_data.get("dll_path", "")
                     dll_name = event_data.get("dll_name", "")
                     sig_val = event_data.get("signature_status", "UNSIGNED")
@@ -1174,7 +1207,8 @@ class MalwareSandboxAnalyzer:
                     if not dll_name and path_val:
                         dll_name = os.path.basename(path_val)
 
-                    event_str = f"[{event_type}] Loaded DLL: {dll_name} | Path: {path_val} | Signature: {sig_val} | SHA256: {sha_val} | Risk: {', '.join(risk_list)} | Verdict: {verdict}"
+                    label = "Loaded DLL" if event_type == "DLL_LOAD" else "Dropped DLL"
+                    event_str = f"[{event_type}] {label}: {dll_name} | Path: {path_val} | Signature: {sig_val} | SHA256: {sha_val} | Risk: {', '.join(risk_list)} | Verdict: {verdict}"
 
                     if not any(d["dll_path"] == path_val for d in self.loaded_dlls):
                         self.loaded_dlls.append(
@@ -1228,6 +1262,7 @@ class MalwareSandboxAnalyzer:
                         }
                     )
             else:
+                event_str = f"[{event_type}] {detail}"
                 if event_type == "DLL_LOAD":
                     parts = detail.split("|")
                     path_val = ""
@@ -1310,9 +1345,10 @@ class MalwareSandboxAnalyzer:
                 dst_ip = event_data.get("dst_ip", "0.0.0.0")
                 dst_port = event_data.get("dst_port", 0)
                 direction = event_data.get("direction", "OUTBOUND")
-                conn_detail = event_data.get("detail", "")
+                conn_detail = event_data.get("network_operation") or event_data.get("detail", "") or event_data.get("raw_detail", "")
                 verdict = event_data.get("verdict", "CLEAN")
                 domain = event_data.get("domain", "")
+                event_type = event_data.get("event_type", event_type)
 
                 if event_type == "DNS_QUERY":
                     is_dga = event_data.get("is_dga_suspect", False)
@@ -1406,6 +1442,7 @@ class MalwareSandboxAnalyzer:
                     event_str = f"[{event_type}] CPU: {cpu_val}% | RAM: {ram_percent}% | Net Out: {net_out / 1024:.1f} KB/s"
                     self.rich_telemetry["Hardware"].append(event_str)
             else:
+                event_str = f"[{event_type}] {detail}"
                 if event_type == "SYS_STRESS":
                     cpu_val = 0.0
                     ram_val = 0.0

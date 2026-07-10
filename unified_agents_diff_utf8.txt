@@ -1,0 +1,789 @@
+diff --git a/sandbox_agents/unified_agents.py b/sandbox_agents/unified_agents.py
+index 8ad6f4f..bb26fdf 100644
+--- a/sandbox_agents/unified_agents.py
++++ b/sandbox_agents/unified_agents.py
+@@ -14,6 +14,7 @@ import ctypes
+ import re
+ import pythoncom
+ import wmi
++from datetime import datetime
+ from watchdog.observers import Observer
+ from watchdog.events import FileSystemEventHandler
+ # Redirect stdout and stderr to a file on desktop since we run directly without shell redirection
+@@ -863,6 +864,8 @@ def parse_kernel_logs(mode="detonate"):
+     # pid -> process name
+     pid_names = {}  # str(pid) -> process_name
+ 
++    
++
+     sample_basename = os.path.basename(TARGET_EXE).lower()
+ 
+     try:
+@@ -876,8 +879,10 @@ def parse_kernel_logs(mode="detonate"):
+                 _time, proc_name, pid, op, path, res, detail = row
+ 
+                 pid_names[pid] = proc_name
++                current_process_key = (pid, _time)
++                pid_names[current_process_key] = proc_name
+ 
+-                if op == "Process Create":
++                if op in ("Process Create", "Process Start", "Thread Create", "Thread Start"):
+                     child_pid_str = ""
+                     cmd_line = ""
+                     pid_match = re.search(r"PID:\s*(\d+)", detail)
+@@ -888,9 +893,12 @@ def parse_kernel_logs(mode="detonate"):
+                         cmd_line = cmd_match.group(1).strip()
+ 
+                     if child_pid_str:
+-                        child_map.setdefault(pid, set()).add(child_pid_str)
+-                        pid_cmdlines[child_pid_str] = cmd_line
+-                        pid_names.setdefault(child_pid_str, os.path.basename(path))
++                        child_key = (child_pid_str, _time)
++                        child_map.setdefault(current_process_key, set()).add(child_key)
++                        pid_cmdlines[child_key] = cmd_line
++                        child_name = os.path.basename(path) if path else "Unknown"
++                        pid_names.setdefault(child_key, child_name)
++
+     except Exception as e:
+         stream_log("SYSTEM", "ERROR", f"Pass 1 CSV read failed: {e}")
+         return
+@@ -992,8 +1000,47 @@ def parse_kernel_logs(mode="detonate"):
+                         "verdict": "SUSPICIOUS"
+                     })
+ 
++                
++                CRITICAL_SECURITY_PATHS = [
++                    "system32\\drivers\\etc\\hosts",       # DNS/hosts hijacking
++                    "system32\\config\\",                   # Registry hives (SAM, SYSTEM, SECURITY)
++                    "system32\\lsass.exe",                  # LSASS binary manipulation
++                    "authorized_keys",                      # SSH unauthorized backdoor
++                    "microsoft\\windows\\start menu\\programs\\startup", # Persistence
++                    "microsoft\\windows\\start menu\\programs\\startup", # Classic persistence
++                    ]
++
++                SUSPICIOUS_DIRECTORIES = ["appdata\\local\\temp", "system32\\drivers", "programdata","users\\public"]
++                EXECUTABLE_EXTENSIONS = (".exe", ".dll", ".sys", ".bat", ".vbs", ".ps1", ".scr")
++                RUN_KEYS = ("software\\microsoft\\windows\\currentversion\\run", "software\\microsoft\\windows\\currentversion\\runonce")
++                SERVICE_KEYS = ("system\\currentcontrolset\\services", "system\\controlset001\\services")
++                COM_HIJACK_KEYS = ("software\\classes\\clsid", "software\\classes\\interface")
++                IMAGE_HIJACK_KEYS = "software\\microsoft\\windows nt\\currentversion\\image file execution options"
++                WINLOGON_KEYS = "software\\microsoft\\windows nt\\currentversion\\winlogon"
++
++                SUSPICIOUS_EXEC_PATHS = ["appdata\\local\\temp", "users\\public", "programdata", "windows\\tasks"]
++                SHELL_PROCESSES = ("cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe")
++
++                SUSPICIOUS_DLL_PATHS = ["appdata", "temp", "users\\public", "programdata", "windows\\tasks"]
++
++                # --- Comprehensive Network Threat Hunting Profiles ---
++                SUSPICIOUS_PORTS = {
++                    4444, 8080, 8888, 9999,  # Metasploit, Cobalt Strike, Netcat defaults
++                    6667, 6697,        # IRC Botnets (C2 channels)
++                    1337, 31337,       # Traditional/Exploit kit default ports
++                    22, 23, 3389, 5985 # Core Remote management (Notable if used by non-admin utilities)
++                    }
++                
++                # Processes that have no business interacting with network sockets
++                SYSTEM_ISOLATED_PROCESSES = ("calc.exe", "notepad.exe", "lsass.exe", "spoolsv.exe",
++                "taskhostw.exe", "werfault.exe", "winlogon.exe", "critical_agent.exe")
++                
++                # Common scripting/shell utilities used in Living-off-the-Land (LotL) attacks
++                LOTL_INTERPRETERS = ("powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe", "scrcons.exe")
++
++                
+                 # 1. Filesystem Mutations (FR-DYN-01)
+-                if op in ("WriteFile", "SetEndOfFile"):
++                if op in ("WriteFile", "SetEndOfFile","SetEndOfFileInformation", "SetAllocationInformation", "SetBasicInformationFile", "SetSecurityInformation"):
+                     size, entropy = get_file_info(path)
+ 
+                     is_notable = False
+@@ -1001,6 +1048,20 @@ def parse_kernel_logs(mode="detonate"):
+                     if "vssadmin" in lower_p or "\\\\.\\physicaldrive" in lower_p:
+                         is_notable = True
+                         verdict = "CRITICAL"
++                    elif op in ("SetAllocationInformation", "SetBasicInformationFile"):
++                        is_notable = True
++                        verdict = "SUSPICIOUS"
++                    elif op == "SetSecurityInformation":
++                        is_notable = True
++                        verdict = "CRITICAL"
++                    elif any(crit_path in lower_p for crit_path in CRITICAL_SECURITY_PATHS):
++                        is_notable = True
++                        verdict = "CRITICAL"
++                    # PARAMETER: Hidden File Attribute Toggling
++                    elif "Attributes:" in detail and any(attr in detail for attr in ["H", "S"]):  # Hidden or System attributes
++                        is_notable = True
++                        verdict = "SUSPICIOUS"
++
+ 
+                     stream_log("FR-DYN-01", "FILE_MODIFIED", {
+                         "timestamp": time_str,
+@@ -1015,22 +1076,45 @@ def parse_kernel_logs(mode="detonate"):
+                         "is_notable": is_notable,
+                         "verdict": verdict
+                     })
+-                elif op == "CreateFile" and ("Disposition: Create" in detail or "Disposition: New" in detail or "OpenResult: Created" in detail):
+-                    size, entropy = get_file_info(path)
+-                    if path.lower().endswith(".exe") and path not in created_exes:
+-                        created_exes.append(path)
++                elif op == "CreateFile":
++
++                    is_created = any(x in detail for x in ["Disposition: Create", "Disposition: New", "OpenResult: Created"])
++                    is_overwritten = any(x in detail for x in ["Disposition: Overwrite", "Disposition: OverwriteIf", "OpenResult: Overwritten"])
++
++                    has_ads = ":" in os.path.basename(path) and not path.startswith("\\\\")
++
++                    if is_created or is_overwritten or has_ads:
++                        size, entropy = get_file_info(path)
++                        if path.lower().endswith(".exe") and path not in created_exes:
++                            created_exes.append(path)
++                    
+                     is_notable = False
+                     verdict = "CLEAN"
+                     ext = os.path.splitext(path)[1].lower()
+-                    if ext in (".exe", ".dll", ".sys", ".bat", ".vbs", ".ps1", ".scr"):
+-                        if "appdata\\local\\temp" in lower_p or "system32\\drivers" in lower_p or "programdata" in lower_p:
++                    
++                    event_tag = "FILE_CREATED" if is_created else "FILE_OVERWRITTEN"
++                    if has_ads:
++                        event_tag = "FILE_ADS_DETECTED"
++                        is_notable = True
++                        verdict = "CRITICAL"
++                    
++                    # PARAMETER: Execute Access validation (Process trying to write AND execute out of unmapped zones)
++                    has_execute_access = "Desired Access: Execute" in detail or "Generic Execute" in detail
++
++                    if ext in EXECUTABLE_EXTENSIONS or has_execute_access:
++                        if any(susp_dir in lower_p for susp_dir in SUSPICIOUS_DIRECTORIES):
+                             is_notable = True
+                             verdict = "SUSPICIOUS"
++                    
++                    if any(crit_path in lower_p for crit_path in CRITICAL_SECURITY_PATHS):
++                        is_notable = True
++                        verdict = "CRITICAL"
++                    
+ 
+-                    stream_log("FR-DYN-01", "FILE_CREATED", {
++                    stream_log("FR-DYN-01", event_tag, {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-01",
+-                        "event_type": "FILE_CREATED",
++                        "event_type": event_tag,
+                         "pid": int(pid),
+                         "process_name": proc_name,
+                         "target_path": path,
+@@ -1040,7 +1124,22 @@ def parse_kernel_logs(mode="detonate"):
+                         "is_notable": is_notable,
+                         "verdict": verdict
+                     })
+-                elif op == "SetDispositionInformationFile" and "Delete: True" in detail:
++                
++                elif (op == "SetDispositionInformationFile" and "Delete: True" in detail) or (op == "CreateFile" and "Options: Delete On Close" in detail):
++                    is_notable = False
++                    verdict = "CLEAN"
++
++                        # PARAMETER: Identify if the target was a high value security file
++                    if any(crit_path in lower_p for crit_path in CRITICAL_SECURITY_PATHS):
++                        is_notable = True
++                        verdict = "CRITICAL"
++
++                        # PARAMETER: Detect self-deleting malware techniques or log scrubbing in temp directories
++                    elif lower_p.endswith(EXECUTABLE_EXTENSIONS) and "appdata" in lower_p:
++                        is_notable = True
++                        verdict = "SUSPICIOUS"
++                    
++
+                     stream_log("FR-DYN-01", "FILE_DELETED", {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-01",
+@@ -1049,15 +1148,35 @@ def parse_kernel_logs(mode="detonate"):
+                         "process_name": proc_name,
+                         "target_path": path,
+                         "is_elevated": is_elev,
+-                        "is_notable": False,
+-                        "verdict": "CLEAN"
++                        "is_notable": is_notable,
++                        "verdict": verdict
+                     })
+                 elif op == "SetRenameInformationFile":
++                    
+                     dest_path = path
+                     dest_match = re.search(r"FileName:\s*([^\s,]+)", detail)
++                    
+                     if dest_match:
+                         dest_path = dest_match.group(1).strip()
+-                    size, entropy = get_file_info(dest_path)
++                        size, entropy = get_file_info(dest_path)
++                    
++                    is_notable = False
++                    verdict = "CLEAN"
++                    dest_lower = dest_path.lower()
++                    
++                    # PARAMETER: Detect Masquerading/Extension spoofing (e.g., calc.txt -> calc.exe)
++                    orig_ext = os.path.splitext(path)[1].lower()
++                    dest_ext = os.path.splitext(dest_path)[1].lower()
++                    
++                    if orig_ext != dest_ext and dest_ext in EXECUTABLE_EXTENSIONS:
++                        is_notable = True
++                        verdict = "CRITICAL"  # High fidelity indicator of payload shifting
++                        
++                    
++                    # PARAMETER: Target directory shift detection
++                    elif any(crit_path in dest_lower for crit_path in CRITICAL_SECURITY_PATHS):
++                        is_notable = True
++                        verdict = "CRITICAL"
+ 
+                     stream_log("FR-DYN-01", "FILE_RENAMED", {
+                         "timestamp": time_str,
+@@ -1070,8 +1189,8 @@ def parse_kernel_logs(mode="detonate"):
+                         "entropy": entropy,
+                         "size_bytes": size,
+                         "is_elevated": is_elev,
+-                        "is_notable": False,
+-                        "verdict": "CLEAN"
++                        "is_notable": is_notable,
++                        "verdict": verdict
+                     })
+ 
+                 # 2. Registry Mutations (FR-DYN-02)
+@@ -1079,6 +1198,8 @@ def parse_kernel_logs(mode="detonate"):
+                     key_path, value_name = os.path.split(path)
+                     val_type = "REG_SZ"
+                     val_data = ""
++
++                        # Capture all possible parameter fields from Procmon's Detail column
+                     type_match = re.search(r"Type:\s*([^\s,]+)", detail)
+                     if type_match:
+                         val_type = type_match.group(1).strip()
+@@ -1089,15 +1210,20 @@ def parse_kernel_logs(mode="detonate"):
+                     is_notable = False
+                     verdict = "CLEAN"
+                     lower_val = value_name.lower()
++
+                     if lower_val in ("disableantispyware", "disablerealtimemonitoring", "disablebehaviormonitoring") and "1" in val_data:
+                         is_notable = True
+-                        verdict = "HIGH RISK"
++                        verdict = "CRITICAL"
+                     elif lower_val in ("disabletaskmgr", "disableregistrytools") and "1" in val_data:
+                         is_notable = True
+-                        verdict = "HIGH RISK"
++                        verdict = "CRITICAL"
+                     elif lower_val == "enablelua" and "0" in val_data:
+                         is_notable = True
+-                        verdict = "HIGH RISK"
++                        verdict = "CRITICAL"
++                    # Parameter Analysis: Disabling Windows Update / Safeboot modifications
++                    elif "wuauserv" in lower_p and "start" in lower_val and "4" in val_data: # Disabled State
++                        is_notable = True
++                        verdict = "CRITICAL"
+ 
+                     stream_log("FR-DYN-02", "REG_WRITE", {
+                         "timestamp": time_str,
+@@ -1114,38 +1240,80 @@ def parse_kernel_logs(mode="detonate"):
+                     })
+ 
+                     # 3. Persistence Registry Tripwire (FR-DYN-03)
+-                    if "software\\microsoft\\windows\\currentversion\\run" in lower_p or "software\\microsoft\\windows\\currentversion\\runonce" in lower_p:
++                    if any(rk in lower_p for rk in RUN_KEYS):
+                         stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+-                            "timestamp": time_str,
+-                            "tag": "FR-DYN-03",
++                            "timestamp": time_str, 
++                            "tag": "FR-DYN-03", 
+                             "event_type": "PERSISTENCE_CREATE",
+-                            "pid": int(pid),
+-                            "process_name": proc_name,
++                            "pid": int(pid), 
++                            "process_name": proc_name, 
+                             "category": "registry_run",
+-                            "mechanism": "Run Key Modification",
+-                            "target_path": path,
++                            "mechanism": "Run Key Modification", 
++                            "target_path": path, 
+                             "command": val_data,
+-                            "detection_method": "Kernel Driver Registry Callback mapping",
+-                            "is_notable": True,
++                            "is_notable": True, 
+                             "verdict": "SUSPICIOUS"
+-                        })
+-                    elif "system\\currentcontrolset\\services" in lower_p:
++                            })
++
++                    elif any(sk in lower_p for sk in SERVICE_KEYS):
+                         stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
+-                            "timestamp": time_str,
+-                            "tag": "FR-DYN-03",
++                            "timestamp": time_str, 
++                            "tag": "FR-DYN-03", 
+                             "event_type": "PERSISTENCE_CREATE",
+-                            "pid": int(pid),
+-                            "process_name": proc_name,
++                            "pid": int(pid), 
++                            "process_name": proc_name, 
+                             "category": "windows_service",
+-                            "mechanism": "Windows Service Registration",
+-                            "target_path": path,
++                            "mechanism": "Windows Service Registration", 
++                            "target_path": path, 
+                             "command": val_data,
+-                            "detection_method": "Kernel Driver Registry Callback mapping",
+-                            "is_notable": True,
++                            "is_notable": True, 
+                             "verdict": "SUSPICIOUS"
+-                        })
++                            })
++                    
++                    elif COM_HIJACK_KEYS[0] in lower_p and "inprocserver32" in lower_p:
++                        stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
++                            "timestamp": time_str, 
++                            "tag": "FR-DYN-03", 
++                            "event_type": "PERSISTENCE_CREATE",
++                            "pid": int(pid), 
++                            "process_name": proc_name, 
++                            "category": "com_hijack",
++                            "mechanism": "COM Object Server Override", 
++                            "target_path": path, 
++                            "command": val_data,
++                            "is_notable": True, 
++                            "verdict": "HIGH RISK"
++                            })
+ 
+-                elif op == "RegCreateKey" and "REG_CREATED_NEW_KEY" in detail:
++                    elif IMAGE_HIJACK_KEYS in lower_p and lower_val == "debugger":
++                        stream_log("FR-DYN-03", "PERSISTENCE_CREATE", {
++                            "timestamp": time_str, 
++                            "tag": "FR-DYN-03", 
++                            "event_type": "PERSISTENCE_CREATE",
++                            "pid": int(pid), 
++                            "process_name": proc_name, 
++                            "category": "ifeo_hijack",
++                            "mechanism": "Image File Execution Options Debugger Hook", 
++                            "target_path": path, 
++                            "command": val_data,
++                            "is_notable": True, 
++                            "verdict": "CRITICAL"
++                            })
++
++                elif op == "RegCreateKey":
++                    is_created_new = "REG_CREATED_NEW_KEY" in detail
++                    is_notable = False
++                    verdict = "CLEAN"
++                    
++                    # Parameter Analysis: Capturing Desired Access permissions
++                    # Look for Keys created requesting administrative control or configuration rights
++                    
++                    has_write_access = any(x in detail for x in ["Desired Access: Write", "All Access", "Maximum Allowed"])
++                    
++                    if is_created_new and (IMAGE_HIJACK_KEYS in lower_p or WINLOGON_KEYS in lower_p):
++                        is_notable = True
++                        verdict = "CRITICAL"
++                    
+                     stream_log("FR-DYN-02", "REG_CREATED", {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-02",
+@@ -1153,69 +1321,251 @@ def parse_kernel_logs(mode="detonate"):
+                         "pid": int(pid),
+                         "process_name": proc_name,
+                         "key_path": path,
+-                        "is_notable": False,
+-                        "verdict": "CLEAN"
+-                    })
+-                elif op in ("RegDeleteKey", "RegDeleteValue"):
+-                    stream_log("FR-DYN-02", "REG_DELETED", {
++                        "is_newly_spawned": is_created_new,
++                        "is_notable": is_notable,
++                        "verdict": verdict
++                        })
++
++                # 4. REGISTRY DISCOVERY & RECONNAISSANCE QUERIES
++                elif op in ("RegQueryValue", "RegEnumValue", "RegOpenKey", "RegQueryKeySecurity"):
++                    is_notable = False
++                    verdict = "CLEAN"
++
++                    if op == "RegSetKeySecurity":
++                        is_notable = True
++                        verdict = "SUSPICIOUS"
++                    
++                    # Parameter Analysis: Query Length and Result State
++                    # # Attackers often parse length bounds or look for error codes like "NAME NOT FOUND" to check if defenses exist
++                    is_not_found = "NAME NOT FOUND" in detail
++                    
++                    # Security Recon checking: Untrusted processes aggressively scanning system security controls
++                    if any(def_val in lower_p for def_val in ["disableantispyware", "real-time protection", "windows defender"]):
++                        if proc_name.lower() not in ("services.exe", "msmpeng.exe", "explorer.exe"):
++                            is_notable = True
++                            verdict = "SUSPICIOUS"  # Discovery activity mapping
++                    
++                    stream_log("FR-DYN-02", "REG_QUERY", {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-02",
+-                        "event_type": "REG_DELETED",
++                        "event_type": "REG_QUERY",
+                         "pid": int(pid),
+                         "process_name": proc_name,
+                         "key_path": path,
+-                        "is_notable": False,
+-                        "verdict": "CLEAN"
+-                    })
++                        "query_operation": op,
++                        "is_missing": is_not_found,
++                        "is_notable": is_notable,
++                        "verdict": verdict
++                        })
++                    
++                    # 5. REGISTRY DELETIONS & SECURITY ALTERATIONS
++                elif op in ("RegDeleteKey", "RegDeleteValue", "RegSetKeySecurity"):
++
++                    is_notable = False
++                    verdict = "CLEAN"
++                    event_type = "REG_DELETED"
++                    
++                    # Parameter Analysis: Detect Permission Tampering vs Direct Elimination
++                    if op == "RegSetKeySecurity":
++                        event_type = "REG_SECURITY_MODIFIED"
++                        is_notable = True
++                        verdict = "CRITICAL"  # Changing ownership or DACL objects on registry key
++
++                    # Check if the deleted path was a critical persistence hook or security marker
++                    else:
++                        if any(rk in lower_p for rk in RUN_KEYS) or "services" in lower_p:
++                            is_notable = True
++                            verdict = "SUSPICIOUS"
++                    
++                    stream_log("FR-DYN-02", event_type, {
++                        "timestamp": time_str,
++                        "tag": "FR-DYN-02",
++                        "event_type": event_type,
++                        "pid": int(pid),
++                        "process_name": proc_name,
++                        "key_path": path,
++                        "is_notable": is_notable,
++                        "verdict": verdict
++                        })
+ 
+                 # 4. Process monitoring (FR-DYN-04)
+-                elif op == "Process Create":
++                # 1. PROCESS SPRAWL AND CREATION
++                
++                if op == "Process Create":
+                     child_pid = 0
+                     cmd_line = ""
++                    
++                    # Capture all possible parameter fields from Procmon's Detail column
+                     pid_match = re.search(r"PID:\s*(\d+)", detail)
+                     if pid_match:
+                         child_pid = int(pid_match.group(1))
++                    
+                     cmd_match = re.search(r"Command Line:\s*(.*)", detail)
+                     if cmd_match:
+-                        cmd_line = cmd_match.group(1)
+-
+-                    # Use centralized LotL classifier
+-                    verdict = _classify_process_verdict(cmd_line, os.path.basename(path))
++                        cmd_line = cmd_match.group(1).strip()
++                    
++                    # Extract advanced Procmon properties
++                    parent_pid_match = re.search(r"Parent PID:\s*(\d+)", detail)
++                    ppid = int(parent_pid_match.group(1)) if parent_pid_match else int(pid)
++                    
++                    # Procmon Token Properties: e.g., Integrity: Medium, Integrity: High, or Elevated: True
++                    token_integrity = "Medium"
++                    if "Integrity: High" in detail or "Integrity: System" in detail:
++                        token_integrity = "High/System"
++                    elif "Integrity: Low" in detail:
++                        token_integrity = "Low"
++                    
++                    proc_basename = os.path.basename(path)
++                    verdict = _classify_process_verdict(cmd_line, proc_basename)
+                     is_notable = verdict != "CLEAN"
+-
+-                    # Also flag execution from temp/appdata paths
+-                    if not is_notable and ("temp" in path.lower() or "appdata\\local\\temp" in path.lower()):
++                    
++                    # Parameter Analysis: Execution out of unmapped or user-writable paths
++                    if not is_notable and any(susp_path in path.lower() for susp_path in SUSPICIOUS_EXEC_PATHS):
+                         is_notable = True
+                         verdict = "SUSPICIOUS"
+-
++                    
++                    # Parameter Analysis: Defensive evasion checks (e.g., LSASS dumping via taskmgr or comsvcs)
++                    elif "lsass" in cmd_line.lower() and proc_basename.lower() in ("rundll32.exe", "comsvcs.dll", "taskmgr.exe"):
++                        is_notable = True
++                        verdict = "CRITICAL"
++                    
++                    # Parameter Analysis: Living off the Land (LotL) Binary spawned by a web server or script host
++                    elif proc_basename.lower() in SHELL_PROCESSES and proc_name.lower() in ("w3wp.exe", "nginx.exe", "httpd.exe", "sqlservr.exe"):
++                        is_notable = True
++                        verdict = "CRITICAL"  # High-fidelity indicator of a web shell execution
++                        
+                     stream_log("FR-DYN-04", "PROCESS_SPAWN", {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-04",
+                         "event_type": "PROCESS_SPAWN",
+                         "pid": child_pid,
+-                        "ppid": int(pid),
+-                        "process_name": os.path.basename(path),
++                        "ppid": ppid,
++                        "process_name": proc_basename,
+                         "command_line": cmd_line,
++                        "integrity_level": token_integrity,
+                         "is_notable": is_notable,
+                         "verdict": verdict
+-                    })
++                        })
++                
++                elif op == "Thread Create":
++                    is_notable = False
++                    verdict = "CLEAN"
++                    
++                    # Procmon Parameter Details identify cross-process targets: e.g., "Target PID: 432"
++                    target_pid_match = re.search(r"Target PID:\s*(\d+)", detail)
++                    
++                    if target_pid_match:
++                        target_pid = int(target_pid_match.group(1))
++                        # If the issuing PID does not match the target PID, it's a Remote Thread Creation
++                        if target_pid != int(pid):
++                            is_notable = True
++                            verdict = "CRITICAL"  # High indicators of Process Hollowing or DLL Injection
++                    
++                    stream_log("FR-DYN-04", "CROSS_PROCESS_INJECTION", {
++                        "timestamp": time_str,
++                        "tag": "FR-DYN-04",
++                        "event_type": "REMOTE_THREAD_CREATE",
++                        "source_pid": int(pid),
++                        "source_process": proc_name,
++                        "target_pid": target_pid,
++                        "is_notable": is_notable,
++                        "verdict": verdict
++                        })
++                
++                # 4. PROCESS TERMINATIONS & LIFECYCLE CLOSURE
++                elif op == "Process Exit":
++                    # Capture exit status codes from Procmon (e.g., "Exit Status: 0" vs crash/termination codes)
++                    
++                    exit_status = 0
++                    status_match = re.search(r"Exit Status:\s*(-?\d+)", detail)
++                    if status_match:
++                        exit_status = int(status_match.group(1))
++                    
++                    # Check if a critical agent or security process was forcefully shut down
++                    is_notable = False
++                    verdict = "CLEAN"
++                    
++                    if any(fw_proc in proc_name.lower() for fw_proc in ["msmpeng", "cbdaemon", "edragent", "cybereason"]):
++                        if exit_status != 0:  # Terminated abnormally or killed
++                            is_notable = True
++                            verdict = "CRITICAL"
++                    
++                    stream_log("FR-DYN-04", "PROCESS_EXIT", {
++                        "timestamp": time_str,
++                        "tag": "FR-DYN-04",
++                        "event_type": "PROCESS_EXIT",
++                        "pid": int(pid),
++                        "process_name": proc_name,
++                        "exit_code": exit_status,
++                        "is_notable": is_notable,
++                        "verdict": verdict
++                        })
+ 
+                 # 5. Memory / DLL loading (FR-DYN-05)
++                if (op == "CreateFile" and ("Disposition: Create" in detail or "Disposition: New" in detail or "OpenResult: Created" in detail)) or (op == "WriteFile"):
++                    if path.lower().endswith(".dll"):
++                        sig = check_dll_signature(path)
++                        sha = get_sha256(path)
++                        risk_indicators = ["DLL dropped on filesystem"]
++                        is_notable = False
++                        verdict = "CLEAN"
++                        
++                        if sig == "UNSIGNED":
++                            risk_indicators.append("Unsigned binary drop")
++                            is_notable = True
++                            verdict = "SUSPICIOUS"
++                        
++                        if any(susp_path in path.lower() for susp_path in SUSPICIOUS_DLL_PATHS):
++                            risk_indicators.append("Dropped in userland/temp directory")
++                            is_notable = True
++                            verdict = "SUSPICIOUS"
++                        
++                    stream_log("FR-DYN-05", "DLL_DROPPED", {
++                        "timestamp": time_str,
++                        "tag": "FR-DYN-05",
++                        "event_type": "DLL_DROPPED",
++                        "pid": int(pid),
++                        "process_name": proc_name,
++                        "dll_name": os.path.basename(path),
++                        "dll_path": path,
++                        "signature_status": sig,
++                        "sha256": sha,
++                        "risk_indicators": risk_indicators,
++                        "is_notable": is_notable,
++                        "verdict": verdict
++                        })
++                
++                # CAPTURE RUNTIME DLL EXECUTIONS (Loaded into Memory)
++                
+                 elif op == "Load Image" and path.lower().endswith(".dll"):
+                     sig = check_dll_signature(path)
+                     sha = get_sha256(path)
+-                    risk_indicators = []
++                    risk_indicators = ["DLL loaded into memory"]
+                     is_notable = False
+                     verdict = "CLEAN"
++                    
++                    # Check for Unsigned Loading
++                    
+                     if sig == "UNSIGNED":
+                         risk_indicators.append("Unsigned binary execution")
+                         is_notable = True
+                         verdict = "SUSPICIOUS"
+-                    if "temp" in path.lower() or "appdata" in path.lower():
+-                        risk_indicators.append("Loaded from temp directory")
++                    
++                    # Check for Loading from Hostile Environments
++                    if any(susp_path in path.lower() for susp_path in SUSPICIOUS_DLL_PATHS):
++                        risk_indicators.append("Loaded from unmapped userland/temp directory")
+                         is_notable = True
+                         verdict = "SUSPICIOUS"
+-
++                    
++                    # DETECT DLL HIJACKING: Legitimate Windows processes loading non-system DLLs
++                    is_system_proc = any(sys_p in proc_name.lower() for sys_p in ["svchost.exe", "explorer.exe", "cmd.exe", "powershell.exe"])
++                    is_system_dll = "system32" in path.lower() or "syswow64" in path.lower() or "winsxs" in path.lower()
++                    
++                    if is_system_proc and not is_system_dll:
++                        risk_indicators.append("Potential DLL Search Order Hijack (System process loading userland DLL)")
++                        is_notable = True
++                        verdict = "HIGH RISK"
++                        
+                     stream_log("FR-DYN-05", "DLL_LOAD", {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-05",
+@@ -1229,46 +1579,103 @@ def parse_kernel_logs(mode="detonate"):
+                         "risk_indicators": risk_indicators,
+                         "is_notable": is_notable,
+                         "verdict": verdict
+-                    })
++                        })
+ 
+                 # 6. Network / Winsock Sockets (FR-DYN-06)
+-                elif op in ("TCP Connect", "TCP Send", "UDP Send"):
+-                    remote_addr = path
++                # Match all possible network telemetry events generated by Procmon
++                
++                if op.startswith(("TCP", "UDP")):
++                    # Default variables initialization
++                    
++                    src_ip, src_port = "0.0.0.0", 0
++                    dst_ip, dst_port = "0.0.0.0", 0
++                    direction = "OUTBOUND"
++                    packet_length = 0
++                    
++                    # 1. Parse Procmon directional path formatting: "local_host:port -> remote_host:port"
+                     if "->" in path:
+-                        remote_addr = path.split("->")[1].strip()
+-
+-                    dst_ip = remote_addr
+-                    dst_port = 0
+-                    if ":" in remote_addr:
+-                        parts_ip = remote_addr.split(":")
+-                        dst_ip = parts_ip[0]
+                         try:
+-                            dst_port = int(parts_ip[-1])
+-                        except ValueError:
+-                            pass
+-
++                            local_side, remote_side = path.split("->")
++                            local_side = local_side.strip()
++                            remote_side = remote_side.strip()
++                            
++                            if ":" in local_side:            
++                                parts_src = local_side.rsplit(":", 1)
++                                src_ip = parts_src[0].strip("[]") # Strip brackets if parsing IPv6
++                                src_port = int(parts_src[1])
++                                
++                                # Safely split remote (Destination) details
++                            if ":" in remote_side:
++                                parts_dst = remote_side.rsplit(":", 1)
++                                dst_ip = parts_dst[0].strip("[]")
++                                dst_port = int(parts_dst[1])
++                        
++                        except (ValueError, IndexError):
++                            dst_ip = path
++                    
++                    # 2. Extract advanced packet metrics from Procmon's Detail column 
++                    # (Extracts properties like: "Length: 1024, seqNum: ...")
++                    len_match = re.search(r"Length:\s*(\d+)", detail)
++                    if len_match:
++                        packet_length = int(len_match.group(1))
++                    
++                    # 3. Dynamic Lifecycle Directionality Mapping
++                    if "Receive" in op or "Accept" in op:
++                        direction = "INBOUND"
++                    
+                     is_notable = False
+                     verdict = "CLEAN"
+-                    if dst_port in (4444, 8080, 9999):
++                    risk_indicators = []
++                    proc_lower = proc_name.lower()
++                    
++                    # Heuristic Rule A: Outbound calls to suspicious default malicious infrastructure ports
++                    if dst_port in SUSPICIOUS_PORTS and direction == "OUTBOUND":
+                         is_notable = True
+-                        verdict = "MALICIOUS"
+-
+-                    stream_log("FR-DYN-06", "NETWORK_CONNECTION", {
++                        verdict = "SUSPICIOUS"
++                        risk_indicators.append(f"Connection attempt to high-fidelity target threat port: {dst_port}")
++                    
++                    # Heuristic Rule B: Code injection / Local binary subversion tracking
++                    if proc_lower in SYSTEM_ISOLATED_PROCESSES:
++                        is_notable = True
++                        verdict = "CRITICAL"
++                        risk_indicators.append(f"System Isolated process spawned a raw network transaction")
++                    
++                    # Heuristic Rule C: Scripting engines or execution shells performing network tasks
++                    if proc_lower in LOTL_INTERPRETERS:
++                        if op in ("TCP Connect", "TCP Send") or (op == "UDP Send" and dst_port != 53):
++                            is_notable = True
++                            verdict = "HIGH RISK"
++                            risk_indicators.append("Administrative script/command terminal making an outbound connection")
++                    
++                    # Heuristic Rule D: Exfiltration metric profiling (Flagging large chunks over data pipes)
++                    if packet_length > 10485760 and op in ("TCP Send", "UDP Send"): # > 10MB individual buffer
++                        is_notable = True
++                        
++                        if verdict != "CRITICAL": verdict = "SUSPICIOUS"
++                        risk_indicators.append(f"High-volume data burst detected over single payload transaction ({packet_length} bytes)")
++                    
++                    # 4. Ship complete normalized telemetry record
++                    
++                    stream_log("FR-DYN-06", "NETWORK_ACTIVITY", {
+                         "timestamp": time_str,
+                         "tag": "FR-DYN-06",
+-                        "event_type": "NETWORK_CONNECTION",
++                        "event_type": "NETWORK_ACTIVITY",
+                         "pid": int(pid),
+                         "process_name": proc_name,
+-                        "protocol": op.split()[0],
+-                        "src_ip": "192.168.185.20",
+-                        "src_port": 0,
++                        "protocol": op.split()[0],            # Normalizes to 'TCP' or 'UDP'
++                        "network_operation": op,              # Captures exact state ('TCP Connect', 'TCP Receive', 'UDP Send', etc.)
++                        "direction": direction,
++                        "src_ip": src_ip,
++                        "src_port": src_port,
+                         "dst_ip": dst_ip,
+                         "dst_port": dst_port,
+-                        "direction": "OUTBOUND",
+-                        "detail": f"{op} connection to {remote_addr} with detail: {detail}",
++                        "bytes_transferred": packet_length,
++                        "risk_indicators": risk_indicators,
+                         "is_notable": is_notable,
+-                        "verdict": verdict
+-                    })
++                        "verdict": verdict,
++                        "raw_detail": detail                  # Kept for down-stream deeper inspection
++                        })
++
+     except Exception as e:
+         stream_log("SYSTEM", "ERROR", f"Pass 2 CSV parse failed: {e}")
+ 
