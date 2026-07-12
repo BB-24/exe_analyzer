@@ -137,6 +137,18 @@ def handle_gui_update_table(module: str, data):
         analysis_id = data.get("Analysis ID")
         if intake_sha and analysis_id:
             analysis_id_map[intake_sha.lower()] = analysis_id
+            # Associate this run's unique analysis_id with the latest history record
+            db_session = SessionLocal()
+            try:
+                record = db_session.query(AnalysisHistory).filter_by(sha256_hash=intake_sha.lower()).order_by(AnalysisHistory.id.desc()).first()
+                if record:
+                    record.analysis_id = analysis_id
+                    db_session.commit()
+            except Exception as db_err:
+                db_session.rollback()
+                print(f"[Backend Warning] Failed to update analysis_id: {db_err}")
+            finally:
+                db_session.close()
             # Also store filename
             fname = data.get("Original File Name") or data.get("Filename", "")
             if fname:
@@ -602,20 +614,60 @@ def _reconstruct_results_store_from_dossier(dossier_data: dict) -> tuple[dict, d
     return rs, scoring
 
 
-@app.get("/api/results/{sha256}")
-async def get_results(sha256: str):
-    sha256 = sha256.lower()
+def _resolve_run_details(id_or_sha256: str):
+    db_session = SessionLocal()
+    record = None
+    sha256 = id_or_sha256.lower()
+    analysis_id = None
+    try:
+        if id_or_sha256.isdigit():
+            record = db_session.query(AnalysisHistory).filter_by(id=int(id_or_sha256)).first()
+        else:
+            record = db_session.query(AnalysisHistory).filter_by(sha256_hash=id_or_sha256.lower()).order_by(AnalysisHistory.id.desc()).first()
+        if record:
+            sha256 = record.sha256_hash.lower()
+            analysis_id = record.analysis_id
+    finally:
+        db_session.close()
+    return sha256, analysis_id, record
+
+
+@app.get("/api/results/{id_or_sha256}")
+async def get_results(id_or_sha256: str):
+    sha256, analysis_id, record = _resolve_run_details(id_or_sha256)
+
+    if not sha256:
+        if len(id_or_sha256) == 64:
+            sha256 = id_or_sha256.lower()
+        else:
+            return JSONResponse(status_code=404, content={"error": "Analysis record not found"})
+
+    filename = record.filename if record else "Unknown"
+    status = record.status if record else "Complete"
 
     # 1. Try in-memory session (live / recent analysis)
     with _sessions_lock:
         sess = _sessions.get(sha256)
 
+    is_live = False
+    if sess:
+        if analysis_id and sess.get("analysis_id") == analysis_id:
+            is_live = True
+        elif not analysis_id and not id_or_sha256.isdigit():
+            is_live = True
+
+    # 2. Fetch raw dossier (either the specific run's report or the latest)
     raw_dossier = None
-    dossier_path = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
+    dossier_path = None
+    if analysis_id:
+        dossier_path = os.path.join("workspace", "reports", f"{analysis_id}_Report.json")
+    if not dossier_path or not os.path.exists(dossier_path):
+        dossier_path = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
     if not os.path.exists(dossier_path):
         json_path, _ = _scan_reports_for_sha256(sha256)
         if json_path:
             dossier_path = json_path
+
     if os.path.exists(dossier_path):
         try:
             with open(dossier_path, "r", encoding="utf-8") as fh:
@@ -623,7 +675,7 @@ async def get_results(sha256: str):
         except Exception:
             pass
 
-    if sess and sess.get("results_store"):
+    if is_live and sess and sess.get("results_store"):
         return JSONResponse({
             "sha256":          sess["sha256"],
             "filename":        sess["filename"],
@@ -635,42 +687,25 @@ async def get_results(sha256: str):
             "raw_dossier":     raw_dossier,
         })
 
-    # 2. Fall back to dossier JSON on disk (survives restarts)
-    dossier_path = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
-    if not os.path.exists(dossier_path):
-        # Try scanning reports dir as last resort
-        json_path, _ = _scan_reports_for_sha256(sha256)
-        if json_path:
-            dossier_path = json_path
-
-    if os.path.exists(dossier_path):
+    if raw_dossier:
         try:
-            with open(dossier_path, "r", encoding="utf-8") as fh:
-                dossier_data = json.load(fh)
-
-            results_store, scoring_results = _reconstruct_results_store_from_dossier(dossier_data)
-
-            # Derive filename and status from DB
-            db_session = SessionLocal()
-            try:
-                record = db_session.query(AnalysisHistory).filter_by(sha256_hash=sha256).first()
-                filename = record.filename if record else dossier_data.get("Analysis_Summary", {}).get("Original File Name", "")
-                status   = record.status   if record else "Complete"
-            finally:
-                db_session.close()
+            results_store, scoring_results = _reconstruct_results_store_from_dossier(raw_dossier)
 
             # Load inventory from copied file
             inventory = []
-            inv_path = os.path.join(EXTRACTED_DIR, f"{sha256}_inventory.json")
+            inv_path = None
+            if analysis_id:
+                inv_path = os.path.join(EXTRACTED_DIR, f"{analysis_id}_inventory_log.json")
+            if not inv_path or not os.path.exists(inv_path):
+                inv_path = os.path.join(EXTRACTED_DIR, f"{sha256}_inventory.json")
             if os.path.exists(inv_path):
                 try:
                     with open(inv_path, "r", encoding="utf-8") as fh:
                         inventory = json.load(fh)
                 except Exception:
                     pass
-            # Or fall back to checking in report package extraction
             if not inventory:
-                inventory = dossier_data.get("Package_Extraction", [])
+                inventory = raw_dossier.get("Package_Extraction", [])
 
             return JSONResponse({
                 "sha256":          sha256,
@@ -680,7 +715,7 @@ async def get_results(sha256: str):
                 "scoring_results": scoring_results,
                 "logs":            [],
                 "inventory":       inventory,
-                "raw_dossier":     dossier_data,
+                "raw_dossier":     raw_dossier,
             })
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": f"Failed to read dossier: {e}"})
@@ -739,17 +774,12 @@ async def get_status(sha256: str):
 # ─────────────────────────────────────────────
 # Report download endpoints
 # ─────────────────────────────────────────────
-def _get_download_filename(sha256: str, ext: str) -> str:
-    db_session = SessionLocal()
+def _get_download_filename_by_record(sha256: str, ext: str, record=None) -> str:
     filename = ""
     timestamp = None
-    try:
-        record = db_session.query(AnalysisHistory).filter_by(sha256_hash=sha256).first()
-        if record:
-            filename = record.filename
-            timestamp = record.timestamp
-    finally:
-        db_session.close()
+    if record:
+        filename = record.filename
+        timestamp = record.timestamp
 
     if not filename:
         with _sessions_lock:
@@ -778,48 +808,55 @@ def _get_download_filename(sha256: str, ext: str) -> str:
     return f"{name_prefix}-{time_str}{ext}"
 
 
-@app.get("/download/report/json/{sha256}")
-async def download_json_report(sha256: str):
+@app.get("/download/report/json/{id_or_sha256}")
+async def download_json_report(id_or_sha256: str):
     from fastapi.responses import FileResponse
-    sha256 = sha256.lower()
-    dl_filename = _get_download_filename(sha256, ".json")
+    sha256, aid, record = _resolve_run_details(id_or_sha256)
+    if not sha256:
+        if len(id_or_sha256) == 64:
+            sha256 = id_or_sha256.lower()
+        else:
+            return JSONResponse(status_code=404, content={"error": "Analysis record not found"})
 
-    # 1. Check dossier copy (created by handle_analysis_complete)
-    dossier = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
-    if os.path.exists(dossier):
-        return FileResponse(dossier, media_type="application/json",
-                            filename=dl_filename)
+    dl_filename = _get_download_filename_by_record(sha256, ".json", record)
 
-    # 2. Check in-memory map (set during the current server session)
-    aid = analysis_id_map.get(sha256)
+    # 1. Try resolving using specific aid first
     if aid:
         path = os.path.join("workspace", "reports", f"{aid}_Report.json")
         if os.path.exists(path):
-            return FileResponse(path, media_type="application/json",
-                                filename=dl_filename)
+            return FileResponse(path, media_type="application/json", filename=dl_filename)
 
-    # 3. Full disk scan (handles previous analyses after a restart)
+    # 2. Check dossier copy
+    dossier = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
+    if os.path.exists(dossier):
+        return FileResponse(dossier, media_type="application/json", filename=dl_filename)
+
+    # 3. Full disk scan
     json_path, _ = _scan_reports_for_sha256(sha256)
     if json_path and os.path.exists(json_path):
-        return FileResponse(json_path, media_type="application/json",
-                            filename=dl_filename)
+        return FileResponse(json_path, media_type="application/json", filename=dl_filename)
 
     return JSONResponse(status_code=404, content={"error": "JSON report not found"})
 
 
-@app.get("/download/report/pdf/{sha256}")
-async def download_pdf_report(sha256: str):
+@app.get("/download/report/pdf/{id_or_sha256}")
+async def download_pdf_report(id_or_sha256: str):
     from fastapi.responses import FileResponse
     from core.report import ReportGenerator
     from core.scoring import ScoringResult
-    sha256 = sha256.lower()
-    dl_filename = _get_download_filename(sha256, ".pdf")
+    sha256, aid, record = _resolve_run_details(id_or_sha256)
+    if not sha256:
+        if len(id_or_sha256) == 64:
+            sha256 = id_or_sha256.lower()
+        else:
+            return JSONResponse(status_code=404, content={"error": "Analysis record not found"})
 
-    # Locate the JSON source — try in-memory map first, then disk scan
+    dl_filename = _get_download_filename_by_record(sha256, ".pdf", record)
+
+    # Locate the JSON source — try specific aid first
     json_path = None
     pdf_path  = None
 
-    aid = analysis_id_map.get(sha256)
     if aid:
         candidate = os.path.join("workspace", "reports", f"{aid}_Report.json")
         if os.path.exists(candidate):
@@ -851,12 +888,10 @@ async def download_pdf_report(sha256: str):
         print(f"[PDF regen error] {exc}")
         # Fall back to whatever is on disk if regeneration fails
         if pdf_path and os.path.exists(pdf_path):
-            return FileResponse(pdf_path, media_type="application/pdf",
-                                filename=dl_filename)
+            return FileResponse(pdf_path, media_type="application/pdf", filename=dl_filename)
         return JSONResponse(status_code=500, content={"error": f"PDF generation failed: {exc}"})
 
-    return FileResponse(pdf_path, media_type="application/pdf",
-                        filename=dl_filename)
+    return FileResponse(pdf_path, media_type="application/pdf", filename=dl_filename)
 
 
 @app.post("/api/terminate/{sha256}")
@@ -914,20 +949,23 @@ async def read_root(request: Request):
     return templates.TemplateResponse(request=request, name="index.html", context={"history": history})
 
 
-@app.get("/report/{sha256}")
-async def read_report(request: Request, sha256: str):
-    sha256 = sha256.lower().strip()
-    db_session = SessionLocal()
-    try:
-        record = db_session.query(AnalysisHistory).filter_by(sha256_hash=sha256).first()
-    finally:
-        db_session.close()
+@app.get("/report/{id_or_sha256}")
+async def read_report(request: Request, id_or_sha256: str):
+    sha256, analysis_id, record = _resolve_run_details(id_or_sha256)
 
     if not record:
-        return HTMLResponse("<h1>Analysis Record Not Found</h1>", status_code=404)
+        if len(id_or_sha256) == 64:
+            sha256 = id_or_sha256.lower()
+        else:
+            return HTMLResponse("<h1>Analysis Record Not Found</h1>", status_code=404)
 
     report_data = {}
-    dossier = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
+    dossier = None
+    if analysis_id:
+        dossier = os.path.join("workspace", "reports", f"{analysis_id}_Report.json")
+    if not dossier or not os.path.exists(dossier):
+        dossier = os.path.join(DOSSIERS_DIR, f"{sha256}_dossier.json")
+
     if os.path.exists(dossier):
         try:
             with open(dossier) as fh:

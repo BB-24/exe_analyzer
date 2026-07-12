@@ -7,7 +7,8 @@ class AnalysisHistory(Base):
     __tablename__ = "analysis_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    sha256_hash = Column(String, unique=True, index=True, nullable=False)
+    sha256_hash = Column(String, index=True, nullable=False)
+    analysis_id = Column(String, nullable=True)
     filename = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.now)
     status = Column(String, default="Queued") # Queued, Processing, Complete, Failed
@@ -19,8 +20,8 @@ def handle_analysis_log(sha256_hash, filename=None, status=None, risk_score=None
     """
     session = SessionLocal()
     try:
-        # Check if record exists
-        record = session.query(AnalysisHistory).filter_by(sha256_hash=sha256_hash).first()
+        # Find the LATEST record for this sha256_hash to update the current analysis run
+        record = session.query(AnalysisHistory).filter_by(sha256_hash=sha256_hash).order_by(AnalysisHistory.id.desc()).first()
         if record:
             if filename is not None:
                 record.filename = filename

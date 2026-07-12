@@ -77,6 +77,24 @@ async def upload_file(
             with open(dest_filepath, "wb") as f:
                 f.write(content)
 
+        # Create a new record in the history database with "Queued" status
+        import datetime
+        db_session = SessionLocal()
+        try:
+            new_record = AnalysisHistory(
+                sha256_hash=sha256_hash,
+                filename=file.filename,
+                status="Queued",
+                timestamp=datetime.datetime.now()
+            )
+            db_session.add(new_record)
+            db_session.commit()
+        except Exception as db_err:
+            db_session.rollback()
+            print(f"[Backend Warning] Failed to insert initial history record: {db_err}")
+        finally:
+            db_session.close()
+
         background_tasks.add_task(
             _publish_trigger,
             sha256_hash=sha256_hash,
@@ -128,16 +146,36 @@ def get_history():
         session.close()
 
 
-@router.get("/download/pcap/{sha256}")
-def download_pcap(sha256: str):
+@router.get("/download/pcap/{id_or_sha256}")
+def download_pcap(id_or_sha256: str):
+    sha256 = id_or_sha256.lower()
+    if id_or_sha256.isdigit():
+        db_session = SessionLocal()
+        try:
+            record = db_session.query(AnalysisHistory).filter_by(id=int(id_or_sha256)).first()
+            if record:
+                sha256 = record.sha256_hash.lower()
+        finally:
+            db_session.close()
+
     path = os.path.join(PCAPS_DIR, f"{sha256}_traffic.pcap")
     if not os.path.exists(path):
         return JSONResponse(status_code=404, content={"error": "PCAP not found"})
     return FileResponse(path, media_type="application/vnd.tcpdump.pcap", filename=f"{sha256}_traffic.pcap")
 
 
-@router.get("/download/extracted/{sha256}/{filename:path}")
-def download_extracted(sha256: str, filename: str):
+@router.get("/download/extracted/{id_or_sha256}/{filename:path}")
+def download_extracted(id_or_sha256: str, filename: str):
+    sha256 = id_or_sha256.lower()
+    if id_or_sha256.isdigit():
+        db_session = SessionLocal()
+        try:
+            record = db_session.query(AnalysisHistory).filter_by(id=int(id_or_sha256)).first()
+            if record:
+                sha256 = record.sha256_hash.lower()
+        finally:
+            db_session.close()
+
     path = os.path.join(EXTRACTED_DIR, sha256, filename)
     if not os.path.exists(path):
         return JSONResponse(status_code=404, content={"error": "File not found"})
