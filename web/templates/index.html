@@ -858,6 +858,48 @@ let dynFilter  = 'All';
 let logLines   = [];
 let _strCounts = {};
 let _strArtifacts = {};
+let currentScoringResults = {};
+
+function getCombinedScoringResult(scoringResults) {
+  const targets = Object.keys(scoringResults);
+  if (targets.length === 0) return null;
+  
+  let maxTarget = targets[0];
+  let maxScore = parseFloat(scoringResults[maxTarget].total_score) || 0;
+  
+  for (let i = 1; i < targets.length; i++) {
+    const t = targets[i];
+    const s = parseFloat(scoringResults[t].total_score) || 0;
+    if (s > maxScore) {
+      maxScore = s;
+      maxTarget = t;
+    }
+  }
+  
+  const bestResult = scoringResults[maxTarget];
+  
+  const combinedCategories = [];
+  const categoryNamesSeen = new Set();
+  
+  targets.forEach(t => {
+    const result = scoringResults[t];
+    (result.categories || []).forEach(cat => {
+      if (!categoryNamesSeen.has(cat.name)) {
+        categoryNamesSeen.add(cat.name);
+        combinedCategories.push(JSON.parse(JSON.stringify(cat)));
+      }
+    });
+  });
+  
+  return {
+    target: bestResult.target,
+    verdict: bestResult.verdict,
+    total_score: bestResult.total_score,
+    confidence: bestResult.confidence,
+    timestamp: bestResult.timestamp,
+    categories: combinedCategories
+  };
+}
 
 /* ── Navigation ─────────────────────────────────────────────────── */
 function showPage(name) {
@@ -1051,10 +1093,19 @@ function handleSSEEvent(evt) {
   const type = evt.type, data = evt.data || {};
   if (type === 'log') {
     appendLog(data.msg || '');
+  } else if (type === 'phase_alert') {
+    toast(data.message, 'info');
+    alert(data.message);
   } else if (type === 'table_update') {
     applyTableUpdate(data.module, data.data);
   } else if (type === 'score') {
-    applyScore(data.target, data.result);
+    if (data.target && data.result) {
+      currentScoringResults[data.target] = data.result;
+      const combined = getCombinedScoringResult(currentScoringResults);
+      if (combined) {
+        applyScore(combined.target, combined);
+      }
+    }
   } else if (type === 'inventory') {
     renderInventory(data.inventory);
   } else if (type === 'status') {
@@ -1483,6 +1534,7 @@ function loadAnalysis(sha256) {
 
   // Clear previous state
   logLines = []; dynEvents = [];
+  currentScoringResults = {};
   Object.keys(dynCounts).forEach(k => dynCounts[k] = 0);
   _strCounts = {}; _strArtifacts = {};
   clearLogDOM('fullLog'); clearLogDOM('ovLog');
@@ -1515,8 +1567,11 @@ function loadAnalysis(sha256) {
       Object.entries(rs).forEach(([module, d]) => applyTableUpdate(module, d));
 
       // Scores
-      const sr = data.scoring_results || {};
-      Object.entries(sr).forEach(([target, result]) => applyScore(target, result));
+      currentScoringResults = data.scoring_results || {};
+      const combined = getCombinedScoringResult(currentScoringResults);
+      if (combined) {
+        applyScore(combined.target, combined);
+      }
 
       // Status bar
       const fn = data.filename || '';
@@ -1525,7 +1580,7 @@ function loadAnalysis(sha256) {
         data.status === 'Complete' ? 'done' : data.status === 'Failed' ? 'failed' : 'processing');
 
       // Reports card
-      renderReportsCard(sha256, Object.values(sr)[0]);
+      renderReportsCard(sha256, combined);
 
       if (data.status === 'Complete') {
         document.getElementById('ovPdfLinkContainer').style.display = 'block';

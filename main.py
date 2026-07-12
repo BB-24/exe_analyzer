@@ -123,6 +123,12 @@ def handle_gui_log(msg: str):
     with _pending_logs_lock:
         _pending_logs.setdefault(sha256.lower(), []).append(msg)
 
+    if "Notification: Phase Two (Payload Testing) has started!" in msg:
+        _push_sse(sha256, "phase_alert", {
+            "title": "Phase 1 Complete",
+            "message": "Phase 1 of the bifurcated analysis has completed successfully. Phase 2 (Payload Testing) is now active."
+        })
+
 
 def handle_gui_update_table(module: str, data):
     with active_session_lock:

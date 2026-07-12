@@ -1463,6 +1463,16 @@ if __name__ == "__main__":
     phase1_timeout_arg = getattr(args, "phase1_timeout", 300)
     phase2_timeout_arg = getattr(args, "phase2_timeout", 600)
 
+    def show_sandbox_alert(text):
+        import ctypes
+        import threading
+        def popup():
+            try:
+                ctypes.windll.user32.MessageBoxW(0, text, "MARS Sandbox Agent", 0x40)
+            except Exception:
+                pass
+        threading.Thread(target=popup, daemon=True).start()
+
     stream_log("SYSTEM", "INIT", "Two-Phase Dynamic Agent Started. Setting up environment...")
     
     # Terminate any existing procmon instances first to release file locks
@@ -1580,6 +1590,7 @@ if __name__ == "__main__":
                     
                     CURRENT_PHASE = "MAIN_PAYLOAD"
                     forced_transition = True
+                show_sandbox_alert("Phase 1 Complete (Timeout reached). Transitioning to Phase 2...")
                 break
 
             # Check if the root installer and all its children (excluding payload processes) have finished executing
@@ -1597,6 +1608,7 @@ if __name__ == "__main__":
                 if not installer_active:
                     stream_log("SYSTEM", "PHASE_SHIFT", "Root installer and helper processes exited. Transitioning to Phase 2.")
                     CURRENT_PHASE = "MAIN_PAYLOAD"
+                    show_sandbox_alert("Phase 1 Complete (Installer exited). Transitioning to Phase 2...")
                     break
                 
             time.sleep(1) # Low-overhead pooling sleep
