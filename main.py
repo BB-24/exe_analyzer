@@ -154,11 +154,11 @@ def handle_gui_update_table(module: str, data):
     _push_sse(sha256, "table_update", {"module": module, "data": data if isinstance(data, dict) else {}})
 
 
-def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120, headless: bool = False, mode: str = "detonate"):
+def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, workflow_type: str = "full_detonation", duration_seconds: int = 120, headless: bool = False, mode: str = "detonate", phase1_duration: int = 300, phase2_duration: int = 600):
     global active_session_sha256
     if workflow_type == "bifurcated":
-        duration_seconds = 900
-    print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type} mode={mode}")
+        duration_seconds = phase1_duration + phase2_duration
+    print(f"[Backend] Trigger: {filename} ({sha256_hash[:12]}…) type={workflow_type} mode={mode} phase1_duration={phase1_duration} phase2_duration={phase2_duration}")
 
     with analysis_lock:
         # Re-initialize session dict for this sha256 to clear old logs, status and cancellation flags
@@ -232,6 +232,8 @@ def handle_analysis_trigger(filepath: str, sha256_hash: str, filename: str, work
                 headless=False,
                 mode=mode,
                 analysis_type=workflow_type,
+                phase1_duration=phase1_duration,
+                phase2_duration=phase2_duration,
             )
 
             completion_event.wait(timeout=duration_seconds + 600)

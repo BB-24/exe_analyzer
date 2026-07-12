@@ -17,11 +17,17 @@ import wmi
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# Redirect stdout and stderr to a file on desktop since we run directly without shell redirection
+username = "Administrator"
 try:
     import getpass
     username = getpass.getuser()
+except Exception:
+    pass
+
+# Redirect stdout and stderr to a file on desktop since we run directly without shell redirection
+try:
     log_path = f"C:\\Users\\{username}\\Desktop\\agent_err.log"
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
     sys.stdout = open(log_path, "w", buffering=1)
     sys.stderr = sys.stdout
 except Exception:
@@ -1444,8 +1450,18 @@ if __name__ == "__main__":
         choices=["detonate", "auto-install"],
         help="Execution mode (detonate or auto-install)."
     )
+    parser.add_argument(
+        "--phase1-timeout", type=int, default=300,
+        help="Phase 1 (Installer Wrapper) max timeout in seconds (default: 300)."
+    )
+    parser.add_argument(
+        "--phase2-timeout", type=int, default=600,
+        help="Phase 2 (Main Payload) strict timeout in seconds (default: 600)."
+    )
     args = parser.parse_args()
     mode = getattr(args, "mode", "detonate")
+    phase1_timeout_arg = getattr(args, "phase1_timeout", 300)
+    phase2_timeout_arg = getattr(args, "phase2_timeout", 600)
 
     stream_log("SYSTEM", "INIT", "Two-Phase Dynamic Agent Started. Setting up environment...")
     
@@ -1529,113 +1545,125 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # 5. SEGREGATED TIMELINE ORCHESTRATION
-    # Total Window: 15 Mins (5 Mins Installer max, 10 Mins Payload strict)
+    # Total Window: segregate phase 1 and phase 2
     # ==========================================
-    PHASE_1_MAX_TIMEOUT = 5 * 60   # 300 seconds
-    PHASE_2_STRICT_TIMEOUT = 10 * 60 # 600 seconds
+    PHASE_1_MAX_TIMEOUT = phase1_timeout_arg   # custom seconds
+    PHASE_2_STRICT_TIMEOUT = phase2_timeout_arg # custom seconds
     
     phase_1_start_time = time.time()
     phase_2_start_time = None
     forced_transition = False
 
-    stream_log("SYSTEM", "TIMER_INIT", "Beginning 15-minute bifurcated timeline monitoring.")
+    total_mins = (PHASE_1_MAX_TIMEOUT + PHASE_2_STRICT_TIMEOUT) / 60.0
+    stream_log("SYSTEM", "TIMER_INIT", f"Beginning {total_mins:.1f}-minute bifurcated timeline monitoring (Phase 1: {PHASE_1_MAX_TIMEOUT}s, Phase 2: {PHASE_2_STRICT_TIMEOUT}s).")
 
-    # --- Phase 1 Loop ---
-    while CURRENT_PHASE == "INSTALLER_WRAPPER":
-        elapsed_p1 = time.time() - phase_1_start_time
-        
-        # Check if 5-minute allocation for installation has expired
-        if elapsed_p1 >= PHASE_1_MAX_TIMEOUT:
-            stream_log("SYSTEM", "TIMEOUT_WARNING", "Phase 1 (Installation) maxed out 5-minute threshold. Forcing phase shift.")
+    try:
+        # --- Phase 1 Loop ---
+        while CURRENT_PHASE == "INSTALLER_WRAPPER":
+            elapsed_p1 = time.time() - phase_1_start_time
             
-            with tracking_lock:
-                for p in psutil.process_iter(['pid', 'name', 'ppid']):
-                    try:
-                        ppid_val = p.info.get('ppid')
-                        name_val = p.info.get('name')
-                        if ppid_val is not None and name_val is not None:
-                            if str(ppid_val) == INSTALLER_PID and name_val.lower() != os.path.basename(TARGET_EXE).lower():
-                                PAYLOAD_PIDS.add(str(p.info['pid']))
-                                tracked_pids.add(str(p.info['pid']))
-                    except Exception:
-                        pass
+            # Check if 5-minute allocation for installation has expired
+            if elapsed_p1 >= PHASE_1_MAX_TIMEOUT:
+                stream_log("SYSTEM", "TIMEOUT_WARNING", "Phase 1 (Installation) maxed out 5-minute threshold. Forcing phase shift.")
                 
-                CURRENT_PHASE = "MAIN_PAYLOAD"
-                forced_transition = True
-            break
-
-        # Check if the root installer and all its children (excluding payload processes) have finished executing
-        if INSTALLER_PID:
-            installer_active = False
-            with tracking_lock:
-                for pid in tracked_pids:
-                    if pid not in PAYLOAD_PIDS:
+                with tracking_lock:
+                    for p in psutil.process_iter(['pid', 'name', 'ppid']):
                         try:
-                            if psutil.pid_exists(int(pid)):
-                                installer_active = True
-                                break
+                            ppid_val = p.info.get('ppid')
+                            name_val = p.info.get('name')
+                            if ppid_val is not None and name_val is not None:
+                                if str(ppid_val) == INSTALLER_PID and name_val.lower() != os.path.basename(TARGET_EXE).lower():
+                                    PAYLOAD_PIDS.add(str(p.info['pid']))
+                                    tracked_pids.add(str(p.info['pid']))
                         except Exception:
                             pass
-            if not installer_active:
-                stream_log("SYSTEM", "PHASE_SHIFT", "Root installer and helper processes exited. Transitioning to Phase 2.")
-                CURRENT_PHASE = "MAIN_PAYLOAD"
+                    
+                    CURRENT_PHASE = "MAIN_PAYLOAD"
+                    forced_transition = True
                 break
-            
-        time.sleep(1) # Low-overhead pooling sleep
 
-    # --- Phase 2 Loop ---
-    phase_2_start_time = time.time()
-    stream_log("SYSTEM", "PHASE_START", f"Phase 2 (Payload Testing) active. Timer set for 10 minutes. Forced transition: {forced_transition}")
-
-    while True:
-        elapsed_p2 = time.time() - phase_2_start_time
-        
-        # Check if 10-minute allocation for payload testing has expired
-        if elapsed_p2 >= PHASE_2_STRICT_TIMEOUT:
-            stream_log("SYSTEM", "TIMEOUT_COMPLETE", "Phase 2 strict 10-minute testing window completed.")
-            break
-            
-        # Optional optimization: If all tracked processes die early during testing, 
-        # break early and preserve sandbox performance.
-        if EARLY_EXIT_ON_PAYLOAD_TERMINATION:
-            with tracking_lock:
-                active_targets = [pid for pid in PAYLOAD_PIDS if psutil.pid_exists(int(pid))]
-                if not active_targets and len(PAYLOAD_PIDS) > 0:
-                    stream_log("SYSTEM", "FORENSICS_EARLY_EXIT", "All payload processes terminated. Ending testing window.")
+            # Check if the root installer and all its children (excluding payload processes) have finished executing
+            if INSTALLER_PID:
+                installer_active = False
+                with tracking_lock:
+                    for pid in tracked_pids:
+                        if pid not in PAYLOAD_PIDS:
+                            try:
+                                if psutil.pid_exists(int(pid)):
+                                    installer_active = True
+                                    break
+                            except Exception:
+                                pass
+                if not installer_active:
+                    stream_log("SYSTEM", "PHASE_SHIFT", "Root installer and helper processes exited. Transitioning to Phase 2.")
+                    CURRENT_PHASE = "MAIN_PAYLOAD"
                     break
+                
+            time.sleep(1) # Low-overhead pooling sleep
+
+        # --- Phase 2 Loop ---
+        phase_2_start_time = time.time()
+        phase2_mins = PHASE_2_STRICT_TIMEOUT / 60.0
+        stream_log("SYSTEM", "PHASE_START", f"Phase 2 (Payload Testing) active. Timer set for {phase2_mins:.1f} minutes. Forced transition: {forced_transition}")
+
+        while True:
+            elapsed_p2 = time.time() - phase_2_start_time
+            
+            # Check if allocation for payload testing has expired
+            if elapsed_p2 >= PHASE_2_STRICT_TIMEOUT:
+                phase2_mins = PHASE_2_STRICT_TIMEOUT / 60.0
+                stream_log("SYSTEM", "TIMEOUT_COMPLETE", f"Phase 2 strict {phase2_mins:.1f}-minute testing window completed.")
+                break
+                
+            # Optional optimization: If all tracked processes die early during testing, 
+            # break early and preserve sandbox performance.
+            if EARLY_EXIT_ON_PAYLOAD_TERMINATION:
+                with tracking_lock:
+                    active_targets = [pid for pid in PAYLOAD_PIDS if psutil.pid_exists(int(pid))]
+                    if not active_targets and len(PAYLOAD_PIDS) > 0:
+                        stream_log("SYSTEM", "FORENSICS_EARLY_EXIT", "All payload processes terminated. Ending testing window.")
+                        break
+            
+            time.sleep(2)
+    except Exception as e:
+        stream_log("SYSTEM", "ERROR", f"Agent monitoring loop encountered an exception: {e}")
+    finally:
+        # 6. Teardown & Forensics
+        stream_log("SYSTEM", "INFO", "Analysis window closed. Halting active monitors...")
+        ui_auto_active = False # Stop UI automation thread
+        analysis_active = False # Signal threads to die
         
-        time.sleep(2)
-    
-    # 6. Teardown & Forensics
-    stream_log("SYSTEM", "INFO", "Analysis window closed. Halting active monitors...")
-    ui_auto_active = False # Stop UI automation thread
-    analysis_active = False # Signal threads to die
-    
-    # Run memory forensics before killing processes
-    scan_memory()
-    
-    # Stop ProcMon and convert log
-    stream_log("SYSTEM", "INFO", "Terminating kernel trace and dumping to CSV (This may take a moment)...")
-    try:
-        subprocess.run([PROCMON_PATH, "/Terminate"], check=True, capture_output=True)
-    except Exception as e:
-        stream_log("SYSTEM", "WARNING", f"Failed to terminate ProcMon: {e}")
-    time.sleep(2)
-    
-    try:
-        subprocess.run([PROCMON_PATH, "/OpenLog", PML_LOG, "/SaveAs", CSV_LOG, "/Quiet"], check=True, capture_output=True)
-    except Exception as e:
-        stream_log("SYSTEM", "WARNING", f"Failed to export ProcMon log to CSV: {e}")
-    time.sleep(1)
-    
-    # 7. Post-Processing mode 
-    parse_kernel_logs(mode)
-    
-    stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")
-    if ser:
+        # Run memory forensics before killing processes
         try:
-            ser.close()
-        except Exception:
-            pass
-    time.sleep(3)
+            scan_memory()
+        except Exception as e:
+            stream_log("SYSTEM", "ERROR", f"Teardown: scan_memory failed: {e}")
+        
+        # Stop ProcMon and convert log
+        stream_log("SYSTEM", "INFO", "Terminating kernel trace and dumping to CSV (This may take a moment)...")
+        try:
+            subprocess.run([PROCMON_PATH, "/Terminate"], check=True, capture_output=True)
+        except Exception as e:
+            stream_log("SYSTEM", "WARNING", f"Failed to terminate ProcMon: {e}")
+        time.sleep(2)
+        
+        try:
+            subprocess.run([PROCMON_PATH, "/OpenLog", PML_LOG, "/SaveAs", CSV_LOG, "/Quiet"], check=True, capture_output=True)
+        except Exception as e:
+            stream_log("SYSTEM", "WARNING", f"Failed to export ProcMon log to CSV: {e}")
+        time.sleep(1)
+        
+        # 7. Post-Processing mode 
+        try:
+            parse_kernel_logs(mode)
+        except Exception as e:
+            stream_log("SYSTEM", "ERROR", f"Teardown: parse_kernel_logs failed: {e}")
+        
+        stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")
+        if ser:
+            try:
+                ser.close()
+            except Exception:
+                pass
+        time.sleep(3)
     

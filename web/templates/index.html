@@ -409,10 +409,112 @@ select option{background:hsl(222 28% 10%);}
             <div id="duration_wrapper">
               <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.35rem;">Agent Runtime</label>
               <select id="analysis_duration" style="margin-bottom:.9rem;">
-                <option value="120">2 Minutes &mdash; Standard (120s)</option>
-                <option value="540">9 Minutes &mdash; Thorough (540s)</option>
-                <option value="900">15 Minutes &mdash; Complete (900s)</option>
+                <option value="60">1 Min &mdash; Quick (60s)</option>
+                <option value="120" selected>2 Min &mdash; Standard (120s)</option>
+                <option value="180">3 Min (180s)</option>
+                <option value="240">4 Min (240s)</option>
+                <option value="300">5 Min (300s)</option>
+                <option value="360">6 Min (360s)</option>
+                <option value="420">7 Min (420s)</option>
+                <option value="480">8 Min (480s)</option>
+                <option value="540">9 Min &mdash; Thorough (540s)</option>
+                <option value="600">10 Min (600s)</option>
+                <option value="660">11 Min (660s)</option>
+                <option value="720">12 Min (720s)</option>
+                <option value="780">13 Min (780s)</option>
+                <option value="840">14 Min (840s)</option>
+                <option value="900">15 Min &mdash; Complete (900s)</option>
+                <option value="960">16 Min (960s)</option>
+                <option value="1020">17 Min (1020s)</option>
+                <option value="1080">18 Min (1080s)</option>
+                <option value="1140">19 Min (1140s)</option>
+                <option value="1200">20 Min (1200s)</option>
+                <option value="1260">21 Min (1260s)</option>
+                <option value="1320">22 Min (1320s)</option>
+                <option value="1380">23 Min (1380s)</option>
+                <option value="1440">24 Min (1440s)</option>
+                <option value="1500">25 Min (1500s)</option>
+                <option value="1560">26 Min (1560s)</option>
+                <option value="1620">27 Min (1620s)</option>
+                <option value="1680">28 Min (1680s)</option>
+                <option value="1740">29 Min (1740s)</option>
+                <option value="1800">30 Min (1800s)</option>
               </select>
+            </div>
+
+            <div id="bifurcated_time_wrapper" style="display: none; margin-bottom: .9rem;">
+              <div style="display: flex; gap: .75rem;">
+                <div style="flex: 1;">
+                  <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.35rem;">Phase 1 (Installer)</label>
+                  <select id="bifurcated_phase1_time" style="width: 100%;">
+                    <option value="1">1 Min</option>
+                    <option value="2">2 Min</option>
+                    <option value="3">3 Min</option>
+                    <option value="4">4 Min</option>
+                    <option value="5" selected>5 Min</option>
+                    <option value="6">6 Min</option>
+                    <option value="7">7 Min</option>
+                    <option value="8">8 Min</option>
+                    <option value="9">9 Min</option>
+                    <option value="10">10 Min</option>
+                    <option value="11">11 Min</option>
+                    <option value="12">12 Min</option>
+                    <option value="13">13 Min</option>
+                    <option value="14">14 Min</option>
+                    <option value="15">15 Min</option>
+                    <option value="16">16 Min</option>
+                    <option value="17">17 Min</option>
+                    <option value="18">18 Min</option>
+                    <option value="19">19 Min</option>
+                    <option value="20">20 Min</option>
+                    <option value="21">21 Min</option>
+                    <option value="22">22 Min</option>
+                    <option value="23">23 Min</option>
+                    <option value="24">24 Min</option>
+                    <option value="25">25 Min</option>
+                    <option value="26">26 Min</option>
+                    <option value="27">27 Min</option>
+                    <option value="28">28 Min</option>
+                    <option value="29">29 Min</option>
+                    <option value="30">30 Min</option>
+                  </select>
+                </div>
+                <div style="flex: 1;">
+                  <label style="font-size:.65rem;font-weight:700;color:hsl(var(--text-dim));text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.35rem;">Phase 2 (Payload)</label>
+                  <select id="bifurcated_phase2_time" style="width: 100%;">
+                    <option value="1">1 Min</option>
+                    <option value="2">2 Min</option>
+                    <option value="3">3 Min</option>
+                    <option value="4">4 Min</option>
+                    <option value="5">5 Min</option>
+                    <option value="6">6 Min</option>
+                    <option value="7">7 Min</option>
+                    <option value="8">8 Min</option>
+                    <option value="9">9 Min</option>
+                    <option value="10" selected>10 Min</option>
+                    <option value="11">11 Min</option>
+                    <option value="12">12 Min</option>
+                    <option value="13">13 Min</option>
+                    <option value="14">14 Min</option>
+                    <option value="15">15 Min</option>
+                    <option value="16">16 Min</option>
+                    <option value="17">17 Min</option>
+                    <option value="18">18 Min</option>
+                    <option value="19">19 Min</option>
+                    <option value="20">20 Min</option>
+                    <option value="21">21 Min</option>
+                    <option value="22">22 Min</option>
+                    <option value="23">23 Min</option>
+                    <option value="24">24 Min</option>
+                    <option value="25">25 Min</option>
+                    <option value="26">26 Min</option>
+                    <option value="27">27 Min</option>
+                    <option value="28">28 Min</option>
+                    <option value="29">29 Min</option>
+                    <option value="30">30 Min</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
 
@@ -802,23 +904,24 @@ document.getElementById('analysis_type').addEventListener('change', (e) => {
   const isBifurcated = val === 'bifurcated';
   
   const durWrap = document.getElementById('duration_wrapper');
-  if (durWrap) durWrap.style.display = isStatic ? 'none' : 'block';
+  const bifurWrap = document.getElementById('bifurcated_time_wrapper');
+  
+  if (isStatic) {
+    if (durWrap) durWrap.style.display = 'none';
+    if (bifurWrap) bifurWrap.style.display = 'none';
+  } else if (isBifurcated) {
+    if (durWrap) durWrap.style.display = 'none';
+    if (bifurWrap) bifurWrap.style.display = 'block';
+  } else {
+    if (durWrap) durWrap.style.display = 'block';
+    if (bifurWrap) bifurWrap.style.display = 'none';
+  }
   
   const runWrap = document.getElementById('run_mode_wrapper');
   if (runWrap) runWrap.style.display = isStatic ? 'none' : 'block';
   
   const detWrap = document.getElementById('detonation_mode_wrapper');
   if (detWrap) detWrap.style.display = isStatic ? 'none' : 'block';
-  
-  const durSelect = document.getElementById('analysis_duration');
-  if (durSelect) {
-    if (isBifurcated) {
-      durSelect.value = '900';
-      durSelect.disabled = true;
-    } else {
-      durSelect.disabled = false;
-    }
-  }
 });
 
 function formatBytes(bytes) {
@@ -876,12 +979,21 @@ function handleUpload() {
   const file = document.getElementById('fileInput').files[0];
   if (!file) return;
   const type = document.getElementById('analysis_type').value;
-  const duration = (document.getElementById('analysis_duration') || {value:'120'}).value;
+  let duration = (document.getElementById('analysis_duration') || {value:'120'}).value;
   const headlessVal = 'false'; // VM always runs in GUI mode
   const detonationModeVal = document.getElementById('sandbox_detonation_mode').value;
   const fd = new FormData();
   fd.append('file', file);
   fd.append('analysis_type', type);
+  
+  if (type === 'bifurcated') {
+    const p1_mins = document.getElementById('bifurcated_phase1_time').value;
+    const p2_mins = document.getElementById('bifurcated_phase2_time').value;
+    fd.append('phase1_duration', parseInt(p1_mins) * 60);
+    fd.append('phase2_duration', parseInt(p2_mins) * 60);
+    duration = (parseInt(p1_mins) + parseInt(p2_mins)) * 60;
+  }
+  
   fd.append('analysis_duration', duration);
   fd.append('headless', headlessVal);
   fd.append('analysis_mode', detonationModeVal);

@@ -17,11 +17,17 @@ import wmi
 from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-# Redirect stdout and stderr to a file on desktop since we run directly without shell redirection
+username = "Administrator"
 try:
     import getpass
     username = getpass.getuser()
+except Exception:
+    pass
+
+# Redirect stdout and stderr to a file on desktop since we run directly without shell redirection
+try:
     log_path = f"C:\\Users\\{username}\\Desktop\\agent_err.log"
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
     sys.stdout = open(log_path, "w", buffering=1)
     sys.stderr = sys.stdout
 except Exception:
@@ -1956,38 +1962,47 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # 5. Analysis Window
-    stream_log("SYSTEM", "INFO", f"Analysis window open for {analysis_timeout}s...")
-    time.sleep(analysis_timeout)
-
-    # 6. Teardown & Forensics
-    stream_log("SYSTEM", "INFO", "Analysis window closed. Halting active monitors...")
-    ui_auto_active = False # Stop UI automation thread
-    analysis_active = False # Signal threads to die
-    
-    # Run memory forensics before killing processes
-    scan_memory()
-    
-    # Stop ProcMon and convert log
-    stream_log("SYSTEM", "INFO", "Terminating kernel trace and dumping to CSV (This may take a moment)...")
     try:
-        subprocess.run([PROCMON_PATH, "/Terminate"], check=True, capture_output=True)
+        stream_log("SYSTEM", "INFO", f"Analysis window open for {analysis_timeout}s...")
+        time.sleep(analysis_timeout)
     except Exception as e:
-        stream_log("SYSTEM", "WARNING", f"Failed to terminate ProcMon: {e}")
-    time.sleep(2)
-    
-    try:
-        subprocess.run([PROCMON_PATH, "/OpenLog", PML_LOG, "/SaveAs", CSV_LOG, "/Quiet"], check=True, capture_output=True)
-    except Exception as e:
-        stream_log("SYSTEM", "WARNING", f"Failed to export ProcMon log to CSV: {e}")
-    time.sleep(1)
-    
-    # 7. Post-Processing
-    parse_kernel_logs(mode)
-    
-    stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")
-    if ser:
+        stream_log("SYSTEM", "ERROR", f"Agent monitoring loop encountered an exception: {e}")
+    finally:
+        # 6. Teardown & Forensics
+        stream_log("SYSTEM", "INFO", "Analysis window closed. Halting active monitors...")
+        ui_auto_active = False # Stop UI automation thread
+        analysis_active = False # Signal threads to die
+        
+        # Run memory forensics before killing processes
         try:
-            ser.close()
-        except Exception:
-            pass
-    time.sleep(3)
+            scan_memory()
+        except Exception as e:
+            stream_log("SYSTEM", "ERROR", f"Teardown: scan_memory failed: {e}")
+        
+        # Stop ProcMon and convert log
+        stream_log("SYSTEM", "INFO", "Terminating kernel trace and dumping to CSV (This may take a moment)...")
+        try:
+            subprocess.run([PROCMON_PATH, "/Terminate"], check=True, capture_output=True)
+        except Exception as e:
+            stream_log("SYSTEM", "WARNING", f"Failed to terminate ProcMon: {e}")
+        time.sleep(2)
+        
+        try:
+            subprocess.run([PROCMON_PATH, "/OpenLog", PML_LOG, "/SaveAs", CSV_LOG, "/Quiet"], check=True, capture_output=True)
+        except Exception as e:
+            stream_log("SYSTEM", "WARNING", f"Failed to export ProcMon log to CSV: {e}")
+        time.sleep(1)
+        
+        # 7. Post-Processing
+        try:
+            parse_kernel_logs(mode)
+        except Exception as e:
+            stream_log("SYSTEM", "ERROR", f"Teardown: parse_kernel_logs failed: {e}")
+        
+        stream_log("SYSTEM", "COMPLETE", "Agent teardown successful. Awaiting host shutdown.")
+        if ser:
+            try:
+                ser.close()
+            except Exception:
+                pass
+        time.sleep(3)

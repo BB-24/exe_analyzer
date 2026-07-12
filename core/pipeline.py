@@ -83,11 +83,11 @@ class AnalysisPipeline:
     # PubSub entry point
     # ------------------------------------------------------------------
 
-    def _on_analysis_start(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False, mode="detonate", analysis_type="full_detonation"):
+    def _on_analysis_start(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, headless=False, mode="detonate", analysis_type="full_detonation", phase1_duration=300, phase2_duration=600):
         pub.sendMessage("gui.log", msg=f"\n[*] Pipeline triggered for: {filepath}")
         thread = threading.Thread(
             target=self._execute_pipeline,
-            args=(filepath, run_static, run_dynamic, original_filename, duration_seconds, mode, analysis_type),
+            args=(filepath, run_static, run_dynamic, original_filename, duration_seconds, mode, analysis_type, phase1_duration, phase2_duration),
             daemon=True,
         )
         thread.start()
@@ -96,7 +96,7 @@ class AnalysisPipeline:
     # Main pipeline
     # ------------------------------------------------------------------
 
-    def _execute_pipeline(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, mode="detonate", analysis_type="full_detonation"):
+    def _execute_pipeline(self, filepath, run_static=True, run_dynamic=True, original_filename="", duration_seconds=120, mode="detonate", analysis_type="full_detonation", phase1_duration=300, phase2_duration=600):
         try:
             report_pkg_data     = []
             report_static_data  = {}
@@ -204,7 +204,14 @@ class AnalysisPipeline:
                         )
 
                         try:
-                            dyn_res = self.dynamic_module.run_sandbox_analysis(target_path, duration_seconds=duration_seconds, mode=mode, analysis_type=analysis_type)
+                            dyn_res = self.dynamic_module.run_sandbox_analysis(
+                                target_path,
+                                duration_seconds=duration_seconds,
+                                mode=mode,
+                                analysis_type=analysis_type,
+                                phase1_duration=phase1_duration,
+                                phase2_duration=phase2_duration,
+                            )
                         except Exception as e:
                             pub.sendMessage(
                                 "gui.log",

@@ -427,14 +427,18 @@ class MalwareSandboxAnalyzer:
         self.cancelled = True
         self.is_running = False
 
-    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False, mode="detonate", analysis_type="full_detonation"):
+    def __init__(self, target_binary, duration_seconds=20, config=None, headless=False, mode="detonate", analysis_type="full_detonation", phase1_duration=300, phase2_duration=600):
         self.cancelled = False
         self.target_binary = os.path.abspath(target_binary)
         self.analysis_type = analysis_type
         if analysis_type == "bifurcated":
-            self.duration_seconds = 900
+            self.duration_seconds = phase1_duration + phase2_duration
+            self.phase1_duration = phase1_duration
+            self.phase2_duration = phase2_duration
         else:
             self.duration_seconds = duration_seconds
+            self.phase1_duration = 300
+            self.phase2_duration = 600
         self.config = config or {}
         self.headless = False  # VM always runs in interactive GUI mode
         self.mode = mode  # "detonate" or "auto-install"
@@ -2027,28 +2031,36 @@ class MalwareSandboxAnalyzer:
                     # Pass it directly — no mapping needed.
                     guest_timeout = int(self.duration_seconds)
 
+                    cmd_list = [
+                        vmrun_path,
+                        "-T",
+                        "ws",
+                        "-gu",
+                        guest_user,
+                        "-gp",
+                        guest_pass,
+                        "runProgramInGuest",
+                        vmx_path,
+                        "-noWait",
+                        "-interactive",
+                        "-activeWindow",
+                        guest_python,
+                        "-u",
+                        guest_agent,
+                        "--timeout",
+                        str(guest_timeout),
+                        "--mode",
+                        self.mode,
+                    ]
+                    
+                    if getattr(self, "analysis_type", "full_detonation") == "bifurcated":
+                        cmd_list.extend([
+                            "--phase1-timeout", str(getattr(self, "phase1_duration", 300)),
+                            "--phase2-timeout", str(getattr(self, "phase2_duration", 600))
+                        ])
+
                     subprocess.run(
-                        [
-                            vmrun_path,
-                            "-T",
-                            "ws",
-                            "-gu",
-                            guest_user,
-                            "-gp",
-                            guest_pass,
-                            "runProgramInGuest",
-                            vmx_path,
-                            "-noWait",
-                            "-interactive",
-                            "-activeWindow",
-                            guest_python,
-                            "-u",
-                            guest_agent,
-                            "--timeout",
-                            str(guest_timeout),
-                            "--mode",
-                            self.mode,
-                        ],
+                        cmd_list,
                         check=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
@@ -2751,7 +2763,7 @@ class DynamicController:
         self.is_analyzing = False
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
 
-    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False, mode="detonate", analysis_type="full_detonation"):
+    def run_sandbox_analysis(self, target_exe_path, duration_seconds=None, headless=False, mode="detonate", analysis_type="full_detonation", phase1_duration=300, phase2_duration=600):
         """Orchestrates dynamic analysis using MalwareSandboxAnalyzer.
         
         Args:
@@ -2763,9 +2775,9 @@ class DynamicController:
         self.telemetry = {k: [] for k in TELEMETRY_KEYS}
         self.is_analyzing = True
 
-        timeout = 900 if analysis_type == "bifurcated" else (duration_seconds if duration_seconds is not None else self.timeout)
+        timeout = phase1_duration + phase2_duration if analysis_type == "bifurcated" else (duration_seconds if duration_seconds is not None else self.timeout)
         pub.sendMessage(
-            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds (interactive GUI mode, execution: {mode}, strategy: {analysis_type})..."
+            "gui.log", msg=f"[+] Detonating sample in local MalwareSandboxAnalyzer for {timeout} seconds (interactive GUI mode, execution: {mode}, strategy: {analysis_type}, Phase 1: {phase1_duration}s, Phase 2: {phase2_duration}s)..."
         )
 
         analyzer = MalwareSandboxAnalyzer(
@@ -2775,6 +2787,8 @@ class DynamicController:
             headless=False,
             mode=mode,
             analysis_type=analysis_type,
+            phase1_duration=phase1_duration,
+            phase2_duration=phase2_duration,
         )
         analyzer.execute_analysis()
 

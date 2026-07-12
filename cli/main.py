@@ -44,9 +44,8 @@ examples:
     parser.add_argument(
         "--duration", "-d",
         type=int,
-        choices=[120, 540, 900],
         default=120,
-        help="Unified agent analysis window in seconds (120, 540, or 900; default: 120)",
+        help="Unified agent analysis window in seconds (between 60 and 1800; default: 120)",
     )
     parser.add_argument(
         "--output", "-o",
@@ -144,6 +143,10 @@ class CLIRunner:
     def run(self, filepath, run_static, run_dynamic, config_path, output_dir, duration_seconds=120, mode="detonate"):
         import yaml
         from core.pipeline import AnalysisPipeline
+
+        if not (60 <= duration_seconds <= 1800):
+            print(f"[WARNING] Invalid duration {duration_seconds}s. Resetting to default (120s).")
+            duration_seconds = 120
 
         print(self.HEADER)
         print(" MARS — Malware Analysis & Reverse-engineering System (CLI)")

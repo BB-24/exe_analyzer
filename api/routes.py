@@ -19,7 +19,16 @@ PIPELINE_EXTRACTED_DIR = os.path.join(TEMP_WORKSPACE, "extracted")
 os.makedirs(QUARANTINE_DIR, exist_ok=True)
 
 
-def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_type: str, duration_seconds: int, mode: str = "detonate"):
+def _publish_trigger(
+    sha256_hash: str,
+    filename: str,
+    filepath: str,
+    workflow_type: str,
+    duration_seconds: int,
+    mode: str = "detonate",
+    phase1_duration: int = 300,
+    phase2_duration: int = 600,
+):
     pub.sendMessage("analysis.log", sha256_hash=sha256_hash, filename=filename, status="Queued")
     pub.sendMessage(
         "analysis.trigger",
@@ -30,6 +39,8 @@ def _publish_trigger(sha256_hash: str, filename: str, filepath: str, workflow_ty
         duration_seconds=duration_seconds,
         headless=False,
         mode=mode,
+        phase1_duration=phase1_duration,
+        phase2_duration=phase2_duration,
     )
 
 
@@ -40,14 +51,25 @@ async def upload_file(
     analysis_type: str = Form("full_detonation"),
     analysis_duration: int = Form(120),
     analysis_mode: str = Form("detonate"),
+    phase1_duration: int = Form(300),
+    phase2_duration: int = Form(600),
 ):
     try:
         content = await file.read()
         sha256_hash = hashlib.sha256(content).hexdigest()
 
         # Validate duration (seconds)
-        if analysis_duration not in (120, 540, 900):
-            analysis_duration = 120
+        if analysis_type == "bifurcated":
+            # validate phase1_duration and phase2_duration are between 60 and 1800 (1 min to 30 min)
+            if not (60 <= phase1_duration <= 1800):
+                phase1_duration = 300
+            if not (60 <= phase2_duration <= 1800):
+                phase2_duration = 600
+            analysis_duration = phase1_duration + phase2_duration
+        else:
+            # validate analysis_duration is between 60 and 1800 (1 min to 30 min)
+            if not (60 <= analysis_duration <= 1800):
+                analysis_duration = 120
 
         dest_filename = f"{sha256_hash}.malz"
         dest_filepath = os.path.join(QUARANTINE_DIR, dest_filename)
@@ -63,6 +85,8 @@ async def upload_file(
             workflow_type=analysis_type,
             duration_seconds=analysis_duration,
             mode=analysis_mode,
+            phase1_duration=phase1_duration,
+            phase2_duration=phase2_duration,
         )
 
         return JSONResponse(
@@ -75,6 +99,8 @@ async def upload_file(
                 "analysis_duration": analysis_duration,
                 "run_mode": "interactive",
                 "analysis_mode": analysis_mode,
+                "phase1_duration": phase1_duration,
+                "phase2_duration": phase2_duration,
                 "message": f"File queued for {analysis_type} analysis (Unified Agent Runtime: {analysis_duration}s, mode: interactive, execution: {analysis_mode}).",
             },
         )
