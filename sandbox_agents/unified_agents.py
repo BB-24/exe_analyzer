@@ -273,6 +273,21 @@ def monitor_processes():
             if new_proc:
                 pid = int(new_proc.ProcessId)
                 ppid = int(new_proc.ParentProcessId)
+                proc_name = (new_proc.Name or '').lower()
+                
+                # Check parent name to exclude if spawned by vmtools
+                parent_name = ""
+                try:
+                    p = psutil.Process(ppid)
+                    parent_name = p.name().lower()
+                except Exception:
+                    pass
+                
+                is_vmtools = proc_name in ("vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe") or \
+                             parent_name in ("vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe")
+                             
+                if is_vmtools:
+                    continue
                 
                 with tracking_lock:
                     if str(ppid) in tracked_pids or _is_ancestor_tracked(ppid, tracked_pids):
@@ -884,7 +899,7 @@ def parse_kernel_logs(mode="detonate"):
                     continue
                 _time, proc_name, pid, op, path, res, detail = row
 
-                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe"):
+                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe", "vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe"):
                     continue
 
                 pid_names[pid] = proc_name
@@ -968,6 +983,9 @@ def parse_kernel_logs(mode="detonate"):
                 time_str, proc_name, pid, op, path, res, detail = row
 
                 if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe"):
+                    continue
+
+                if proc_name.lower() in ("vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe"):
                     continue
 
                 if pid not in expanded_pids:

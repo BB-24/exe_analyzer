@@ -47,6 +47,8 @@ EARLY_EXIT_ON_PAYLOAD_TERMINATION = True
 # Global State Management
 analysis_active = True
 tracked_pids = set()
+tracked_payload_paths = set()
+tracked_payload_hashes = set()
 tracking_lock = threading.Lock()
 
 # New State Machine Management for Segregated Analysis
@@ -120,7 +122,7 @@ def monitor_hardware():
             if cores and cores < 2:
                 stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
                     "pid": os.getpid(),
-                    "process_name": "unified_agents.py",
+                    "process_name": "two_phase_agents.py",
                     "check_type": "HARDWARE_CHECK",
                     "indicator": "Low CPU Core Count",
                     "detail": f"System has {cores} CPU cores (sandbox evasion threshold: <2)",
@@ -132,7 +134,7 @@ def monitor_hardware():
             if total_ram_gb < 2.0:
                 stream_log("FR-DYN-07", "ANTI_ANALYSIS", {
                     "pid": os.getpid(),
-                    "process_name": "unified_agents.py",
+                    "process_name": "two_phase_agents.py",
                     "check_type": "HARDWARE_CHECK",
                     "indicator": "Low Physical RAM",
                     "detail": f"System has {total_ram_gb:.2f} GB RAM (sandbox evasion threshold: <2GB)",
@@ -263,15 +265,49 @@ def monitor_processes():
             if new_proc:
                 pid = int(new_proc.ProcessId)
                 ppid = int(new_proc.ParentProcessId)
+                exe_path = (getattr(new_proc, 'ExecutablePath', '') or '').lower()
+                cmd = new_proc.CommandLine if new_proc.CommandLine else "N/A"
+                proc_name = (new_proc.Name or '').lower()
+                
+                # Check parent name to exclude if spawned by vmtools
+                parent_name = ""
+                try:
+                    p = psutil.Process(ppid)
+                    parent_name = p.name().lower()
+                except Exception:
+                    pass
+                
+                is_vmtools = proc_name in ("vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe") or \
+                             parent_name in ("vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe")
+                             
+                if is_vmtools:
+                    continue
+                
+                is_tracked = False
+                is_payload_handoff = False
                 
                 with tracking_lock:
                     if str(ppid) in tracked_pids or _is_ancestor_tracked(ppid, tracked_pids):
+                        is_tracked = True
+                    elif exe_path in tracked_payload_paths:
+                        is_tracked = True
+                        is_payload_handoff = True
+
+                    if is_tracked:
                         tracked_pids.add(str(pid))
-                        cmd = new_proc.CommandLine if new_proc.CommandLine else "N/A"
-                        
+                        if is_payload_handoff:
+                            PAYLOAD_PIDS.add(str(pid))
+                            # Send Phase 2 Handoff telemetry log
+                            stream_log("PHASE-2-HANDOFF", "PAYLOAD_EXECUTED", {
+                                "pid": pid,
+                                "ppid": ppid,
+                                "process_name": new_proc.Name,
+                                "executable_path": exe_path,
+                                "command_line": cmd
+                            })
+
                         # Phase Promotion Check Engine
                         is_payload = False
-                        exe_path = (getattr(new_proc, 'ExecutablePath', '') or '').lower()
                         cmd_lower = cmd.lower()
                         proc_name_lower = new_proc.Name.lower()
 
@@ -350,14 +386,43 @@ class StartupHandler(FileSystemEventHandler):
                 "command": event.src_path,
                 "detection_method": "Startup Folder Directory Watcher",
                 "pid": os.getpid(),
-                "process_name": "unified_agents.py",
+                "process_name": "two_phase_agents.py",
                 "verdict": "SUSPICIOUS"
             })
+
+class PayloadCaptureHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        ext = os.path.splitext(event.src_path)[1].lower()
+        if ext == '.exe':
+            # Allow file handles to settle
+            time.sleep(0.1)
+            try:
+                sha = get_sha256(event.src_path)
+                size, entropy = get_file_info(event.src_path)
+                normalized_path = event.src_path.lower()
+                
+                with tracking_lock:
+                    tracked_payload_paths.add(normalized_path)
+                    if sha and sha != "N/A":
+                        tracked_payload_hashes.add(sha)
+                
+                stream_log("PHASE-1-CAPTURE", "PAYLOAD_DROPPED", {
+                    "target_path": event.src_path,
+                    "sha256": sha,
+                    "size_bytes": size,
+                    "entropy": entropy
+                })
+            except Exception:
+                pass
 
 def monitor_persistence():
     global analysis_active
     observer = Observer()
     handler = StartupHandler()
+    capture_handler = PayloadCaptureHandler()
+    
     watched_paths = [
         os.environ.get('USERPROFILE', r'C:\Users\Administrator') + r'\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup',
         r'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup',
@@ -366,6 +431,19 @@ def monitor_persistence():
     for p in watched_paths:
         if os.path.exists(p):
             observer.schedule(handler, path=p, recursive=False)
+            
+    # Resolve Drop paths recursively
+    temp_dir = os.environ.get('TEMP', r'C:\Users\Administrator\AppData\Local\Temp')
+    appdata_dir = os.environ.get('APPDATA', r'C:\Users\Administrator\AppData\Roaming')
+    progdata_dir = r'C:\ProgramData'
+    
+    for path_to_watch in (temp_dir, appdata_dir, progdata_dir):
+        if os.path.exists(path_to_watch):
+            try:
+                observer.schedule(capture_handler, path=path_to_watch, recursive=True)
+            except Exception as e:
+                stream_log("SYSTEM", "WARNING", f"Could not schedule payload capture watcher for {path_to_watch}: {e}")
+                
     observer.start()
 
     run_key_paths = [
@@ -409,7 +487,7 @@ def monitor_persistence():
                                 "command": str(val),
                                 "detection_method": "Registry ASEP Polling",
                                 "pid": os.getpid(),
-                                "process_name": "unified_agents.py",
+                                "process_name": "two_phase_agents.py",
                                 "verdict": "SUSPICIOUS"
                             })
                         i += 1
@@ -432,7 +510,7 @@ def monitor_persistence():
                             "command": f"schtasks entry: {line.strip()}",
                             "detection_method": "Scheduled Task Delta Polling",
                             "pid": os.getpid(),
-                            "process_name": "unified_agents.py",
+                            "process_name": "two_phase_agents.py",
                             "verdict": "SUSPICIOUS"
                         })
         except Exception: pass
@@ -451,7 +529,7 @@ def monitor_persistence():
                         "command": info.get('binpath', 'N/A'),
                         "detection_method": "Service Delta Polling",
                         "pid": os.getpid(),
-                        "process_name": "unified_agents.py",
+                        "process_name": "two_phase_agents.py",
                         "verdict": "SUSPICIOUS"
                     })
         except Exception: pass
@@ -469,7 +547,7 @@ def monitor_persistence():
                     "command": consumer_class[:200],
                     "detection_method": "WMI Event Consumer Query",
                     "pid": os.getpid(),
-                    "process_name": "unified_agents.py",
+                    "process_name": "two_phase_agents.py",
                     "verdict": "MALICIOUS"
                 })
             pythoncom.CoUninitialize()
@@ -695,7 +773,7 @@ def parse_kernel_logs(mode="detonate"):
             for row in reader:
                 if len(row) < 7: continue
                 _time, proc_name, pid, op, path, res, detail = row
-                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe"):
+                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe", "vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe"):
                     continue
                 p_lower = proc_name.lower()
                 cmdline = ""
@@ -717,7 +795,12 @@ def parse_kernel_logs(mode="detonate"):
         return
 
     # Pass 1b: Chronological PID tracking to populate tracked_events (handles PID reuse)
-    active_tracked = set(root_pids) | installer_pids
+    active_tracked = set()
+    if INSTALLER_PID:
+        active_tracked.add(INSTALLER_PID)
+    for ipid in installer_pids:
+        active_tracked.add(ipid)
+
     tracked_events = set()
     try:
         with open(CSV_LOG, mode='r', encoding='utf-8', errors='ignore') as f:
@@ -726,16 +809,38 @@ def parse_kernel_logs(mode="detonate"):
             for row in reader:
                 if len(row) < 7: continue
                 _time, proc_name, pid, op, path, res, detail = row
-                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe"):
+                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe", "vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe"):
                     continue
                 
-                if op in ("Process Create", "Process Start", "Thread Create", "Thread Start"):
+                if op in ("Process Create", "Process Start"):
+                    child_pid = ""
+                    pid_match = re.search(r"PID:\s*(\d+)", detail)
+                    if pid_match:
+                        child_pid = pid_match.group(1).strip()
+                    
+                    if child_pid:
+                        path_lower = path.lower()
+                        is_target = False
+                        if child_pid in root_pids:
+                            is_target = True
+                        elif pid in active_tracked:
+                            is_target = True
+                        elif path_lower in tracked_payload_paths:
+                            is_target = True
+                        elif sample_basename in path_lower:
+                            is_target = True
+                            
+                        if is_target:
+                            active_tracked.add(child_pid)
+                            
+                elif op in ("Thread Create", "Thread Start"):
                     child_pid = ""
                     pid_match = re.search(r"PID:\s*(\d+)", detail)
                     if pid_match:
                         child_pid = pid_match.group(1).strip()
                     if child_pid and pid in active_tracked:
                         active_tracked.add(child_pid)
+                        
                 elif op == "Process Exit":
                     active_tracked.discard(pid)
                     
@@ -754,7 +859,7 @@ def parse_kernel_logs(mode="detonate"):
             for row in reader:
                 if len(row) < 7: continue
                 time_str, proc_name, pid, op, path, res, detail = row
-                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe"):
+                if proc_name.lower() in ("python.exe", "procmon.exe", "procmon64.exe", "vmtoolsd.exe", "vmwareuser.exe", "vmwaretray.exe", "vmusrvc.exe", "vgauthservice.exe"):
                     continue
 
                 if (pid, time_str) not in tracked_events:
@@ -1399,7 +1504,7 @@ def parse_kernel_logs(mode="detonate"):
         installed_path = None
         for f in created_exes:
             f_lower = f.lower()
-            if "sample.exe" not in f_lower and "two_phase_agents" not in f_lower and "unified_agents" not in f_lower and "taskkill.exe" not in f_lower:
+            if "sample.exe" not in f_lower and "two_phase_agents" not in f_lower and "two_phase_agents" not in f_lower and "taskkill.exe" not in f_lower:
                 installed_path = f
                 break
         if installed_path and os.path.exists(installed_path):
