@@ -753,6 +753,19 @@ class PDFReportBuilder:
         # ==================================================
         story.append(HeadingTracker("STATIC_ANALYSIS", page_map))
         story.append(Paragraph("2. Static Analysis", self.h1_style))
+        
+        # Separator function definition
+        def add_separator(story_list):
+            sep_tbl = Table([[""]], colWidths=[504])
+            sep_tbl.setStyle(TableStyle([
+                ('LINEABOVE', (0,0), (-1,-1), 0.75, colors.HexColor("#cbd5e1")),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+            story_list.append(Spacer(1, 8))
+            story_list.append(sep_tbl)
+            story_list.append(Spacer(1, 12))
+
         story.append(Spacer(1, 5))
 
         package_ext = data.get("Package_Extraction", [])
@@ -816,10 +829,12 @@ class PDFReportBuilder:
             padding=6
         )
         story.append(t_uploaded_hashes)
+        story.append(Spacer(1, 10))
+        add_separator(story)
         story.append(Spacer(1, 15))
 
         # --------------------------------------------------
-        # SECTION 2: HASH OF EXTRACTED PACKAGES
+        # SECTION 2: Hash of Extracted Packages
         # --------------------------------------------------
         story.append(Paragraph("2. Hash of Extracted Packages", self.h2_style))
         story.append(Spacer(1, 10))
@@ -832,9 +847,13 @@ class PDFReportBuilder:
 
         if not is_zip:
             story.append(Paragraph("No executable binaries were extracted from the uploaded archive. Therefore no additional hashes are available.", self.normal))
+            story.append(Spacer(1, 10))
+            add_separator(story)
             story.append(Spacer(1, 15))
         elif not extracted_exes:
             story.append(Paragraph("No executable binaries were extracted from the uploaded archive. Therefore no additional hashes are available.", self.normal))
+            story.append(Spacer(1, 10))
+            add_separator(story)
             story.append(Spacer(1, 15))
         else:
             # We have extracted executables
@@ -858,7 +877,7 @@ class PDFReportBuilder:
                     elif item.get("SHA-1"):
                         hashes["SHA-1"] = item.get("SHA-1")
                 
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>2.{idx_ext+1} Executable: {rel_path}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>2.{idx_ext+1} Executable: {rel_path}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
                 ext_tbl = [
                     [Paragraph("<b>Algorithm</b>", self.normal_bold), Paragraph(f"<b>Hash Value</b>", self.normal_bold)],
@@ -878,6 +897,8 @@ class PDFReportBuilder:
                 )
                 story.append(t_ext_tbl)
                 story.append(Spacer(1, 15))
+
+            add_separator(story)
 
         # --------------------------------------------------
         # SECTION 3: EXECUTABLE BINARIES
@@ -976,6 +997,8 @@ class PDFReportBuilder:
             )
         story.append(Paragraph("<b>Analysis Summary:</b>", self.normal_bold))
         story.append(Paragraph(sec3_summary, self.normal))
+        story.append(Spacer(1, 10))
+        add_separator(story)
         story.append(Spacer(1, 15))
 
         # Loop through each target binary in static results to repeat executable-specific analyses (4, 5, 6, 7, 8, 9)
@@ -984,9 +1007,8 @@ class PDFReportBuilder:
         # --------------------------------------------------
         # SECTION 4: SECTION PERMISSION ANALYSIS
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("4. Section Permission Analysis", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -994,7 +1016,7 @@ class PDFReportBuilder:
         else:
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>4.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
 
                 sections_data = file_data.get("Sections", {})
@@ -1065,12 +1087,13 @@ class PDFReportBuilder:
                 story.append(Paragraph(sec4_summary, self.normal))
                 story.append(Spacer(1, 15))
 
+            add_separator(story)
+
         # --------------------------------------------------
         # SECTION 5: SECTION ENTROPY ANALYSIS
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("5. Section Entropy Analysis", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -1078,7 +1101,7 @@ class PDFReportBuilder:
         else:
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>5.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
 
                 sections_data = file_data.get("Sections", {})
@@ -1235,14 +1258,15 @@ class PDFReportBuilder:
             for summ in overall_summaries:
                 story.append(Paragraph(summ, self.normal))
                 story.append(Spacer(1, 4))
+            story.append(Spacer(1, 10))
+            add_separator(story)
             story.append(Spacer(1, 15))
 
         # --------------------------------------------------
         # SECTION 6: MANIFEST ANALYSIS
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("6. Manifest Analysis", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -1250,7 +1274,7 @@ class PDFReportBuilder:
         else:
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>6.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
 
                 man_data = file_data.get("Manifest Data", {})
@@ -1312,12 +1336,13 @@ class PDFReportBuilder:
                 story.append(Paragraph(sec6_summary, self.normal))
                 story.append(Spacer(1, 15))
 
+            add_separator(story)
+
         # --------------------------------------------------
         # SECTION 7: MATCHED YARA RULES
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("7. Matched YARA Rules", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -1325,7 +1350,7 @@ class PDFReportBuilder:
         else:
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>7.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
                 
                 yara_data = file_data.get("YARA Signatures", {})
@@ -1408,12 +1433,13 @@ class PDFReportBuilder:
                 story.append(Paragraph(sec8_summary, self.normal))
                 story.append(Spacer(1, 15))
 
+            add_separator(story)
+
         # --------------------------------------------------
         # SECTION 8: SUSPICIOUS IMPORTS
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("8. Suspicious Imports", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -1448,7 +1474,7 @@ class PDFReportBuilder:
 
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>8.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
 
                 imp_data = file_data.get("Suspicious Imports", {})
@@ -1511,12 +1537,13 @@ class PDFReportBuilder:
                 story.append(Paragraph(sec7_summary, self.normal))
                 story.append(Spacer(1, 15))
 
+            add_separator(story)
+
         # --------------------------------------------------
         # SECTION 9: PE HEADER ANALYSIS
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("9. PE Header Analysis", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -1524,7 +1551,7 @@ class PDFReportBuilder:
         else:
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>9.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
 
                 pe_headers_data = file_data.get("PE Headers", {})
@@ -1556,12 +1583,13 @@ class PDFReportBuilder:
 
                 story.append(Spacer(1, 15))
 
+            add_separator(story)
+
         # --------------------------------------------------
         # SECTION 10: EXTRACTED ARTIFACTS
         # --------------------------------------------------
-        story.append(PageBreak())
         story.append(Paragraph("10. Extracted Artifacts", self.h2_style))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
         if not target_binaries:
             story.append(Paragraph("No PE executable static analysis results available.", self.normal))
@@ -1569,7 +1597,7 @@ class PDFReportBuilder:
         else:
             for idx, target_name in enumerate(target_binaries):
                 file_data = static_results[target_name]
-                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Paragraph(f"<b>10.{idx+1} Executable: {target_name}</b>", self.normal_bold))
                 story.append(Spacer(1, 6))
 
                 art_data = file_data.get("Extracted Artifacts", {})
@@ -1598,6 +1626,8 @@ class PDFReportBuilder:
                 )
                 story.append(t_art)
                 story.append(Spacer(1, 15))
+
+            add_separator(story)
 
         story.append(PageBreak())
 
