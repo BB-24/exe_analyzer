@@ -141,7 +141,7 @@ class AnalysisPipeline:
                 pub.sendMessage("gui.update_table", module="Package Unpacker: Inventory", data={"inventory": inventory})
 
                 for item in inventory:
-                    if item["Extension"] in [".exe", ".dll", ".sys"]:
+                    if item["Extension"] in [".exe", ".dll", ".sys", ".msi"]:
                         full_path = os.path.join(extract_dir, item["Relative_Path"])
                         extracted_executables.append(full_path)
 

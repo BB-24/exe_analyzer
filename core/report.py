@@ -6,6 +6,7 @@ import os
 import re
 import datetime
 import json
+import hashlib
 from typing import List, Dict, Any, Optional, Tuple, Set, Union
 from pubsub import pub
 
@@ -68,6 +69,31 @@ class DataCleaner:
             if v and v not in ("N/A", "?", ""):
                 return v
         return "Unknown Sample"
+
+    @staticmethod
+    def calculate_file_hashes(filepath: str) -> Dict[str, str]:
+        """Calculates MD5, SHA-1, SHA-256, and SHA-512 hashes for a file."""
+        hashes = {"MD5": "N/A", "SHA-1": "N/A", "SHA-256": "N/A", "SHA-512": "N/A"}
+        if not os.path.exists(filepath):
+            return hashes
+        try:
+            h_md5 = hashlib.md5()
+            h_sha1 = hashlib.sha1()
+            h_sha256 = hashlib.sha256()
+            h_sha512 = hashlib.sha512()
+            with open(filepath, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h_md5.update(chunk)
+                    h_sha1.update(chunk)
+                    h_sha256.update(chunk)
+                    h_sha512.update(chunk)
+            hashes["MD5"] = h_md5.hexdigest()
+            hashes["SHA-1"] = h_sha1.hexdigest()
+            hashes["SHA-256"] = h_sha256.hexdigest()
+            hashes["SHA-512"] = h_sha512.hexdigest()
+        except Exception:
+            pass
+        return hashes
 
     @staticmethod
     def clean_strings(str_list: List[Any], category: str) -> List[str]:
@@ -730,121 +756,839 @@ class PDFReportBuilder:
         story.append(Spacer(1, 5))
 
         package_ext = data.get("Package_Extraction", [])
+        static_results = data.get("Static_Analysis_Results", {})
 
-        # 1. Package Hashes
-        story.append(Paragraph("Package Hashes", self.h2_style))
-        hashes_tbl_data = [
-            [Paragraph("<b>MD5</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("MD5", "N/A"))), self.code_style)],
-            [Paragraph("<b>SHA-1</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA1", "N/A"))), self.code_style)],
-            [Paragraph("<b>SHA-256</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA256", "N/A"))), self.code_style)],
-            [Paragraph("<b>SHA-512</b>", self.normal_bold), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA512", "N/A"))), self.code_style)]
+        # Helper function for permission mapping
+        def get_perm_type(perms: str) -> str:
+            perms = perms.upper()
+            r = "R" in perms
+            w = "W" in perms
+            e = "E" in perms or "X" in perms
+            if r and w and e:
+                return "RWE"
+            elif r and e:
+                return "RE"
+            elif r and w:
+                return "RW"
+            elif w and e:
+                return "WE"
+            elif r:
+                return "R"
+            elif w:
+                return "W"
+            elif e:
+                return "E"
+            return "None"
+
+        # Helper function to classify entropy
+        def get_entropy_status(entropy_val: float) -> str:
+            if entropy_val < 6.5:
+                return "Normal"
+            elif entropy_val < 7.2:
+                return "Moderately High"
+            elif entropy_val < 8.0:
+                return "Suspicious"
+            else:
+                return "Highly Packed"
+        is_zip = meta.get("Extension", "").lower() in (".zip", ".msi") or meta.get("MIME/Format Guess", "").lower().find("zip") != -1 or meta.get("MIME/Format Guess", "").lower().find("msi") != -1
+        
+        if is_zip:
+            story.append(Paragraph("1. Hash of Uploaded ZIP File", self.h2_style))
+        else:
+            story.append(Paragraph("1. Hash of Uploaded File", self.h2_style))
+
+        story.append(Spacer(1, 10))
+        uploaded_hashes = [
+            [Paragraph("<b>Algorithm</b>", self.normal_bold), Paragraph("<b>Value</b>", self.normal_bold)],
+            [Paragraph("MD5", self.normal), Paragraph(DataCleaner.clean_hash(str(meta.get("MD5", "N/A"))), self.code_style)],
+            [Paragraph("SHA-1", self.normal), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA1", "N/A"))), self.code_style)],
+            [Paragraph("SHA-256", self.normal), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA256", "N/A"))), self.code_style)],
+            [Paragraph("SHA-512", self.normal), Paragraph(DataCleaner.clean_hash(str(meta.get("SHA512", "N/A"))), self.code_style)]
         ]
-        t_hashes = TableFormatter.build_table(
-            data=hashes_tbl_data,
+        t_uploaded_hashes = TableFormatter.build_table(
+            data=uploaded_hashes,
             col_widths=[120, 384],
             bg_color=self.bg_light,
             border_color=self.border_color,
             is_long=False,
-            repeat_rows=0,
+            repeat_rows=1,
             valign='TOP',
             padding=6
         )
-        story.append(t_hashes)
-        story.append(Spacer(1, 10))
+        story.append(t_uploaded_hashes)
+        story.append(Spacer(1, 15))
 
-        # 2. Hash of Unzipped Package
-        story.append(Paragraph("Hash of Unzipped Package", self.h2_style))
-        if package_ext:
-            unzip_rows = []
+        # --------------------------------------------------
+        # SECTION 2: HASH OF EXTRACTED PACKAGES
+        # --------------------------------------------------
+        story.append(Paragraph("2. Hash of Extracted Packages", self.h2_style))
+        story.append(Spacer(1, 10))
+        extracted_exes = []
+        if is_zip and package_ext:
             for item in package_ext:
+                ext = str(item.get("Extension", "")).lower()
+                if ext in (".exe", ".dll", ".sys", ".drv", ".msi"):
+                    extracted_exes.append(item)
+
+        if not is_zip:
+            story.append(Paragraph("No executable binaries were extracted from the uploaded archive. Therefore no additional hashes are available.", self.normal))
+            story.append(Spacer(1, 15))
+        elif not extracted_exes:
+            story.append(Paragraph("No executable binaries were extracted from the uploaded archive. Therefore no additional hashes are available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            # We have extracted executables
+            filename_main = DataCleaner.resolve_filename(meta)
+            analysis_id = meta.get("Analysis ID", "")
+            # Reconstruct extract dir
+            extract_dir = os.path.join(self.config.get('system', {}).get('extract_dir', './workspace/extracted'), f"{analysis_id}_{filename_main}_unpacked")
+            
+            for idx_ext, item in enumerate(extracted_exes):
                 rel_path = item.get("Relative_Path", "Unknown")
-                sha256 = item.get("SHA256", "N/A")
-                unzip_rows.append([Paragraph(rel_path, self.normal), Paragraph(DataCleaner.clean_hash(sha256), self.code_style)])
-            t_unzip = TableFormatter.build_table(
-                data=unzip_rows,
-                col_widths=[150, 354],
-                bg_color=self.bg_light,
-                border_color=self.border_color,
-                is_long=True,
-                repeat_rows=0,
-                valign='TOP',
-                padding=6
-            )
-            story.append(t_unzip)
-        else:
-            story.append(Paragraph("N/A - Not an archive/package file", self.normal))
-        story.append(Spacer(1, 10))
-
-        # 3. Executable Binaries List
-        story.append(Paragraph("Executable Binaries List", self.h2_style))
-        binaries = []
-        if package_ext:
-            for item in package_ext:
-                if item.get("Is_Flagged") or str(item.get("Extension", "")).lower() in (".exe", ".dll", ".sys", ".drv"):
-                    binaries.append(item.get("Relative_Path", "Unknown"))
-        else:
-            fname = DataCleaner.resolve_filename(meta)
-            if fname and fname != "Unknown Sample":
-                binaries.append(fname)
-        
-        if binaries:
-            for b in binaries:
-                story.append(Paragraph(f"• {b}", self.normal))
-        else:
-            story.append(Paragraph("N/A", self.normal))
-        story.append(Spacer(1, 10))
-
-        # 4. PE Section Table & details
-        for target_name, file_data in static_results.items():
-            # Section Analysis
-            story.append(Paragraph("Section Analysis (Permissions & Entropy)", self.h2_style))
-            sections_data = file_data.get("Sections", {})
-            
-            sect_rows = [[
-                Paragraph("<b>Section Name</b>", self.normal_bold),
-                Paragraph("<b>Permissions</b>", self.normal_bold),
-                Paragraph("<b>Entropy</b>", self.normal_bold),
-            ]]
-            
-            for sect_name, info in sections_data.items():
-                perms = "N/A"
-                entropy = "N/A"
-                info_str = str(info)
-                p_match = re.search(r"Perms:\s*([^\s|]+)", info_str)
-                if p_match:
-                    perms = p_match.group(1)
-                e_match = re.search(r"Entropy:\s*([^\s|]+)", info_str)
-                if e_match:
-                    entropy = e_match.group(1)
+                filepath = os.path.join(extract_dir, rel_path)
+                hashes = DataCleaner.calculate_file_hashes(filepath)
+                # Fallback to item hashes if file not found
+                if hashes.get("SHA-256") == "N/A":
+                    if item.get("SHA256"):
+                        hashes["SHA-256"] = item.get("SHA256")
+                    if item.get("MD5"):
+                        hashes["MD5"] = item.get("MD5")
+                    if item.get("SHA1"):
+                        hashes["SHA-1"] = item.get("SHA1")
+                    elif item.get("SHA-1"):
+                        hashes["SHA-1"] = item.get("SHA-1")
                 
-                is_unusual_perms = 'W' in perms.upper() and 'E' in perms.upper()
-                is_unusual_entropy = False
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>2.{idx_ext+1} Executable: {rel_path}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+                ext_tbl = [
+                    [Paragraph("<b>Algorithm</b>", self.normal_bold), Paragraph(f"<b>Hash Value</b>", self.normal_bold)],
+                    [Paragraph("MD5", self.normal), Paragraph(hashes.get("MD5", "N/A"), self.code_style)],
+                    [Paragraph("SHA-1", self.normal), Paragraph(hashes.get("SHA-1", "N/A"), self.code_style)],
+                    [Paragraph("SHA-256", self.normal), Paragraph(hashes.get("SHA-256", "N/A"), self.code_style)]
+                ]
+                t_ext_tbl = TableFormatter.build_table(
+                    data=ext_tbl,
+                    col_widths=[120, 384],
+                    bg_color=self.bg_light,
+                    border_color=self.border_color,
+                    is_long=False,
+                    repeat_rows=1,
+                    valign='TOP',
+                    padding=6
+                )
+                story.append(t_ext_tbl)
+                story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 3: EXECUTABLE BINARIES
+        # --------------------------------------------------
+        story.append(Paragraph("3. Executable Binaries", self.h2_style))
+        story.append(Spacer(1, 10))
+        
+        bin_rows = [[
+            Paragraph("<b>Executable Name</b>", self.normal_bold),
+            Paragraph("<b>Relative Path</b>", self.normal_bold),
+            Paragraph("<b>Architecture</b>", self.normal_bold),
+            Paragraph("<b>File Size</b>", self.normal_bold)
+        ]]
+
+        if is_zip and package_ext:
+            for item in package_ext:
+                ext = str(item.get("Extension", "")).lower()
+                if ext in (".exe", ".dll", ".sys", ".drv", ".msi"):
+                    rel_path = item.get("Relative_Path", "Unknown")
+                    file_name = item.get("File_Name", os.path.basename(rel_path))
+                    size_bytes = item.get("Size_Bytes", 0)
+                    size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes > 0 else "N/A"
+                    
+                    # Fetch architecture from static analysis results if present
+                    arch = "Unknown"
+                    if rel_path in static_results:
+                        arch = static_results[rel_path].get("PE Headers", {}).get("Machine Architecture", "Unknown")
+                    elif file_name in static_results:
+                        arch = static_results[file_name].get("PE Headers", {}).get("Machine Architecture", "Unknown")
+                    
+                    # Clean hex architecture name
+                    if arch == "0x14c": arch = "x86 (32-bit)"
+                    elif arch == "0x8664": arch = "x64 (64-bit)"
+                    elif arch == "0xaa64": arch = "ARM64 (64-bit)"
+                    
+                    bin_rows.append([
+                        Paragraph(file_name, self.normal),
+                        Paragraph(rel_path, self.code_style),
+                        Paragraph(arch, self.normal),
+                        Paragraph(size_str, self.normal)
+                    ])
+        else:
+            file_name = DataCleaner.resolve_filename(meta)
+            size_bytes = meta.get("File Size (Bytes)", 0)
+            size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes > 0 else "N/A"
+            arch = "Unknown"
+            
+            # Look inside static_results keys (there should be only one for standalone EXE)
+            if static_results:
+                target_k = list(static_results.keys())[0]
+                arch = static_results[target_k].get("PE Headers", {}).get("Machine Architecture", "Unknown")
+            
+            if arch == "0x14c": arch = "x86 (32-bit)"
+            elif arch == "0x8664": arch = "x64 (64-bit)"
+            elif arch == "0xaa64": arch = "ARM64 (64-bit)"
+
+            bin_rows.append([
+                Paragraph(file_name, self.normal),
+                Paragraph(".", self.code_style),
+                Paragraph(arch, self.normal),
+                Paragraph(size_str, self.normal)
+            ])
+
+        t_bin_rows = TableFormatter.build_table(
+            data=bin_rows,
+            col_widths=[140, 160, 114, 90],
+            bg_color=self.bg_light,
+            border_color=self.border_color,
+            is_long=True,
+            repeat_rows=1,
+            valign='TOP',
+            padding=6
+        )
+        story.append(t_bin_rows)
+        story.append(Spacer(1, 8))
+
+        # Dynamic Analyst Summary for Section 3
+        if is_zip and len(extracted_exes) > 0:
+            exe_details = []
+            for item in extracted_exes:
+                rel_path = item.get("Relative_Path", "Unknown")
+                size_bytes = item.get("Size_Bytes", 0)
+                exe_details.append(f"{os.path.basename(rel_path)} ({size_bytes / 1024:.1f} KB)")
+            
+            sec3_summary = (
+                f"The archive package contains multiple executable binaries intended to be extracted and executed on the target system: <b>{', '.join(exe_details)}</b>. "
+                "These binaries represent the primary executable payloads identified during extraction. "
+                "The presence of multiple binaries inside a single package suggests a multi-stage installer, wrapper, or a modular toolset. "
+                "Each file must be inspected for independent malicious mechanisms."
+            )
+        else:
+            file_name = DataCleaner.resolve_filename(meta)
+            sec3_summary = (
+                f"The uploaded file is a standalone executable binary named <b>{file_name}</b>. It is executed directly on the system. "
+                "No secondary payloads or extracted archive packages were found. Static analysis is performed directly on this single binary context."
+            )
+        story.append(Paragraph("<b>Analysis Summary:</b>", self.normal_bold))
+        story.append(Paragraph(sec3_summary, self.normal))
+        story.append(Spacer(1, 15))
+
+        # Loop through each target binary in static results to repeat executable-specific analyses (4, 5, 6, 7, 8, 9)
+        target_binaries = list(static_results.keys())
+
+        # --------------------------------------------------
+        # SECTION 4: SECTION PERMISSION ANALYSIS
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("4. Section Permission Analysis", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+
+                sections_data = file_data.get("Sections", {})
+                
+                if not sections_data:
+                    story.append(Paragraph("No section information available for this binary.", self.normal))
+                else:
+                    sect_rows = [[
+                        Paragraph("<b>Section</b>", self.normal_bold),
+                        Paragraph("<b>Permissions</b>", self.normal_bold)
+                    ]]
+                    
+                    suspicious_sections = []
+                    for sect_name, info in sections_data.items():
+                        perms = "N/A"
+                        info_str = str(info)
+                        p_match = re.search(r"Perms:\s*([^\s|]+)", info_str)
+                        if p_match:
+                            perms = p_match.group(1).upper()
+                        
+                        sect_clean = sect_name.replace("Section:", "").strip()
+                        perm_type = get_perm_type(perms)
+                        
+                        is_suspicious_perm = "W" in perms and "E" in perms
+                        if is_suspicious_perm:
+                            suspicious_sections.append(sect_clean)
+                            sect_clean_styled = f"<font color='#dc2626'>{sect_clean} [!]</font>"
+                            perms_styled = f"<font color='#dc2626'>{perms} ({perm_type})</font>"
+                        else:
+                            sect_clean_styled = sect_clean
+                            perms_styled = f"{perms} ({perm_type})"
+
+                        sect_rows.append([
+                            Paragraph(sect_clean_styled, self.normal),
+                            Paragraph(perms_styled, self.code_style)
+                        ])
+                    
+                    t_sect = TableFormatter.build_table(
+                        data=sect_rows,
+                        col_widths=[200, 304],
+                        bg_color=self.bg_light,
+                        border_color=self.border_color,
+                        is_long=True,
+                        repeat_rows=1,
+                        valign='TOP',
+                        padding=6
+                    )
+                    story.append(t_sect)
+
+                story.append(Spacer(1, 8))
+                
+                # Dynamic Analyst Summary for Section 4
+                if suspicious_sections:
+                    sec4_summary = (
+                        f"Anomalous section characteristics were identified in the binary <b>{target_name}</b>. "
+                        f"Specifically, section(s) <b>{', '.join(suspicious_sections)}</b> are marked as both writable and executable (RWE/WE). "
+                        "Writable and executable sections represent a severe security risk, as they violate basic Data Execution Prevention (DEP) policies. "
+                        "Malware frequently uses RWE sections to store and execute dynamically unpacked code, shellcode, or hijacked payloads. "
+                        "This finding strongly indicates that the binary may be packed or designed to execute self-modifying code."
+                    )
+                else:
+                    sec4_summary = (
+                        f"The section permissions for <b>{target_name}</b> adhere to standard PE specifications. "
+                        "The primary code section (.text) is marked executable and read-only, while data sections (.data, .bss) are marked as writable and non-executable. "
+                        "No highly unusual memory protection characteristics (such as RWE flags) were detected, meaning standard DEP policies are enforced on these sections."
+                    )
+                story.append(Paragraph("<b>Analysis Summary:</b>", self.normal_bold))
+                story.append(Paragraph(sec4_summary, self.normal))
+                story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 5: SECTION ENTROPY ANALYSIS
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("5. Section Entropy Analysis", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+
+                sections_data = file_data.get("Sections", {})
+                
+                if not sections_data:
+                    story.append(Paragraph("No section information available for this binary.", self.normal))
+                else:
+                    entropy_rows = [[
+                        Paragraph("<b>Section</b>", self.normal_bold),
+                        Paragraph("<b>Entropy</b>", self.normal_bold),
+                        Paragraph("<b>Status</b>", self.normal_bold)
+                    ]]
+                    
+                    suspicious_entropy_sections = []
+                    for sect_name, info in sections_data.items():
+                        entropy_val_str = "N/A"
+                        info_str = str(info)
+                        e_match = re.search(r"Entropy:\s*([^\s|]+)", info_str)
+                        if e_match:
+                            entropy_val_str = e_match.group(1)
+                        
+                        status = "Normal"
+                        try:
+                            val = float(entropy_val_str)
+                            status = get_entropy_status(val)
+                        except ValueError:
+                            pass
+                        
+                        sect_clean = sect_name.replace("Section:", "").strip()
+                        
+                        if status in ("Suspicious", "Highly Packed"):
+                            suspicious_entropy_sections.append(f"{sect_clean} ({entropy_val_str})")
+                            sect_styled = f"<font color='#dc2626'>{sect_clean} [!]</font>"
+                            entropy_styled = f"<font color='#dc2626'>{entropy_val_str}</font>"
+                            status_styled = f"<font color='#dc2626'>{status}</font>"
+                        else:
+                            sect_styled = sect_clean
+                            entropy_styled = entropy_val_str
+                            status_styled = status
+
+                        entropy_rows.append([
+                            Paragraph(sect_styled, self.normal),
+                            Paragraph(entropy_styled, self.code_style),
+                            Paragraph(status_styled, self.normal)
+                        ])
+                    
+                    t_entropy = TableFormatter.build_table(
+                        data=entropy_rows,
+                        col_widths=[160, 160, 184],
+                        bg_color=self.bg_light,
+                        border_color=self.border_color,
+                        is_long=True,
+                        repeat_rows=1,
+                        valign='TOP',
+                        padding=6
+                    )
+                    story.append(t_entropy)
+
+                story.append(Spacer(1, 8))
+
+                # Section Entropy Summary (section-focused)
+                if suspicious_entropy_sections:
+                    sec5_summary = (
+                        f"High section entropy indicators were identified in individual sections of <b>{target_name}</b>. "
+                        f"Specifically, the section(s) <b>{', '.join(suspicious_entropy_sections)}</b> exhibit elevated entropy levels. "
+                        "In malware analysis, high entropy in code or data sections is a classic indicator of obfuscation, compression, "
+                        "or cryptographic data storage designed to resist signature-based detection and static analysis."
+                    )
+                else:
+                    sec5_summary = (
+                        f"The section entropy values for <b>{target_name}</b> conform to standard distribution metrics. "
+                        "All individual sections fall within low-to-moderate entropy thresholds, suggesting that executable code is "
+                        "stored in uncompressed plaintext and contains no obvious packed/obfuscated sections."
+                    )
+                story.append(Paragraph("<b>Section Entropy Summary:</b>", self.normal_bold))
+                story.append(Paragraph(sec5_summary, self.normal))
+                story.append(Spacer(1, 15))
+
+            # Show Overall File Metrics & Packer Detection table and summaries ONLY ONCE at the end of Entropy Analysis
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("<b>Overall File Metrics & Packer Detection</b>", self.normal_bold))
+            story.append(Spacer(1, 6))
+
+            overall_metrics_data = [
+                [
+                    Paragraph("<b>Executable</b>", self.normal_bold),
+                    Paragraph("<b>Overall File Entropy</b>", self.normal_bold),
+                    Paragraph("<b>Compiler / Packer</b>", self.normal_bold)
+                ]
+            ]
+
+            overall_summaries = []
+            for target_name in target_binaries:
+                file_data = static_results[target_name]
+                file_entropy_val = file_data.get("PE Headers", {}).get("Overall File Entropy", "N/A")
+                is_overall_entropy_high = False
                 try:
-                    is_unusual_entropy = float(entropy) > 7.0
+                    is_overall_entropy_high = float(file_entropy_val) >= 7.2
                 except ValueError:
                     pass
                 
-                perms_styled = perms
-                entropy_styled = entropy
-                sect_name_styled = sect_name.replace("Section:", "").strip()
-                
-                if is_unusual_perms:
-                    perms_styled = f"<font color='#dc2626'><b>[!] {perms}</b></font>"
-                    sect_name_styled = f"<font color='#dc2626'><b>{sect_name_styled}</b></font>"
-                if is_unusual_entropy:
-                    entropy_styled = f"<font color='#ea580c'><b>[!] {entropy}</b></font>"
-                    if not is_unusual_perms:
-                        sect_name_styled = f"<font color='#ea580c'><b>{sect_name_styled}</b></font>"
+                if is_overall_entropy_high:
+                    overall_status = get_entropy_status(float(file_entropy_val))
+                    entropy_p = f"<font color='#dc2626'>{file_entropy_val} ({overall_status})</font>"
+                else:
+                    entropy_p = f"{file_entropy_val} (Normal)"
 
-                sect_rows.append([
-                    Paragraph(sect_name_styled, self.normal),
-                    Paragraph(perms_styled, self.code_style),
-                    Paragraph(entropy_styled, self.code_style)
+                pe_headers_data = file_data.get("PE Headers", {})
+                packer_v = pe_headers_data.get("Detected Packer", "None Detected")
+                
+                packer_keywords = ["packer", "protector", "themida", "vmp", "upx", "enigma", "pelock", "aspack", "fsg", "petite", "pecompact"]
+                compiler_keywords = ["msvc", "gcc", "mingw", "go compiler", "rust compiler", "delphi", "pyinstaller"]
+                packer_lower = str(packer_v).lower()
+                if any(kw in packer_lower for kw in packer_keywords):
+                    packer_styled = f"<font color='#dc2626'>[!] {packer_v}</font>"
+                elif any(kw in packer_lower for kw in compiler_keywords):
+                    packer_styled = f"{packer_v}"
+                else:
+                    packer_styled = packer_v
+
+                overall_metrics_data.append([
+                    Paragraph(target_name, self.normal),
+                    Paragraph(entropy_p, self.normal),
+                    Paragraph(packer_styled, self.normal)
                 ])
-            if len(sect_rows) > 1:
-                t_sect = TableFormatter.build_table(
-                    data=sect_rows,
-                    col_widths=[150, 150, 204],
+
+                # build overall summary for this binary
+                if is_overall_entropy_high or any(kw in packer_lower for kw in packer_keywords):
+                    summary_text = (
+                        f"For <b>{target_name}</b>, overall entropy is <b>{file_entropy_val}</b> and packer signature <b>{packer_v}</b> was detected, "
+                        "indicating typical packer or compression wrapping characteristics."
+                    )
+                else:
+                    summary_text = (
+                        f"For <b>{target_name}</b>, overall entropy is <b>{file_entropy_val}</b> (Normal) with compiler signature <b>{packer_v}</b>, "
+                        "indicating a standard uncompressed build."
+                    )
+                overall_summaries.append(summary_text)
+
+            t_overall = TableFormatter.build_table(
+                data=overall_metrics_data,
+                col_widths=[150, 150, 204],
+                bg_color=self.bg_light,
+                border_color=self.border_color,
+                is_long=True,
+                repeat_rows=1,
+                valign='TOP',
+                padding=6
+            )
+            story.append(t_overall)
+            story.append(Spacer(1, 10))
+
+            story.append(Paragraph("<b>Overall Metrics Summary:</b>", self.normal_bold))
+            for summ in overall_summaries:
+                story.append(Paragraph(summ, self.normal))
+                story.append(Spacer(1, 4))
+            story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 6: MANIFEST ANALYSIS
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("6. Manifest Analysis", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+
+                man_data = file_data.get("Manifest Data", {})
+                
+                if not man_data:
+                    story.append(Paragraph("No embedded application manifest was identified within the executable.", self.normal))
+                else:
+                    manifest_status = man_data.get("Manifest Status", "Parsed Successfully")
+                    exec_level = man_data.get("Requested Execution Level", "Unknown")
+                    
+                    man_tbl_rows = [
+                        [Paragraph("<b>Parameter</b>", self.normal_bold), Paragraph("<b>Value</b>", self.normal_bold)],
+                        [Paragraph("Manifest Status", self.normal), Paragraph(manifest_status, self.normal)],
+                        [Paragraph("Requested Execution Level", self.normal), Paragraph(exec_level, self.normal)]
+                    ]
+                    
+                    t_man_tbl = TableFormatter.build_table(
+                        data=man_tbl_rows,
+                        col_widths=[200, 304],
+                        bg_color=self.bg_light,
+                        border_color=self.border_color,
+                        is_long=False,
+                        repeat_rows=1,
+                        valign='TOP',
+                        padding=6
+                    )
+                    story.append(t_man_tbl)
+
+                story.append(Spacer(1, 8))
+
+                # Dynamic Analyst Summary for Section 6
+                if not man_data or "Not Found" in man_data.get("Manifest Status", ""):
+                    sec6_summary = (
+                        f"The executable <b>{target_name}</b> lacks an embedded application manifest. "
+                        "The absence of an application manifest indicates that Windows will apply default execution policies, "
+                        "which may include virtualizing file system writes and registry entries. "
+                        "Malware frequently omits manifests to reduce file size, limit static indicators, or evade basic heuristic analysis, "
+                        "though legacy legitimate binaries may also lack them."
+                    )
+                else:
+                    exec_level = man_data.get("Requested Execution Level", "Unknown")
+                    sec6_summary = (
+                        f"The executable <b>{target_name}</b> contains an embedded XML manifest. "
+                        f"The requested execution level is set to <b>{exec_level}</b>. "
+                    )
+                    if "administrator" in exec_level.lower():
+                        sec6_summary += (
+                            "This execution level requires the process to run with administrative privileges, triggering a User Account Control (UAC) prompt. "
+                            "Malware requiring high integrity levels usually requests this to gain complete system access, disable security software, "
+                            "or install persistent boot components."
+                        )
+                    else:
+                        sec6_summary += (
+                            "This level allows the process to run under standard user privileges. "
+                            "Executing under standard privilege levels helps malware blend in, execute silently without showing a UAC prompt, "
+                            "and compromise user-level documents before attempting privilege escalation."
+                        )
+                story.append(Paragraph("<b>Analysis Summary:</b>", self.normal_bold))
+                story.append(Paragraph(sec6_summary, self.normal))
+                story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 7: MATCHED YARA RULES
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("7. Matched YARA Rules", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+                
+                yara_data = file_data.get("YARA Signatures", {})
+                matched_rules = yara_data.get("Matched Rules") or yara_data.get("Rules", "")
+                
+                yara_list = []
+                if matched_rules and matched_rules != "Clean" and matched_rules != "0":
+                    yara_list = [x.strip() for x in matched_rules.split(",") if x.strip()]
+
+                story.append(Paragraph(f"<b>Total Matches:</b> {len(yara_list)}", self.normal))
+                story.append(Spacer(1, 4))
+
+                if not yara_list:
+                    story.append(Paragraph("No YARA signatures matched this executable.", self.normal))
+                else:
+                    yara_rows = [[
+                        Paragraph("<b>Rule Name</b>", self.normal_bold),
+                        Paragraph("<b>Severity</b>", self.normal_bold),
+                        Paragraph("<b>Category</b>", self.normal_bold),
+                        Paragraph("<b>Description</b>", self.normal_bold)
+                    ]]
+
+                    def get_rule_details(rule_name):
+                        name_l = rule_name.lower()
+                        if "anti" in name_l or "evasion" in name_l:
+                            return "HIGH", "Anti-Analysis", "Detects anti-debugging or emulation checks."
+                        elif "inject" in name_l or "hollow" in name_l:
+                            return "CRITICAL", "Injection", "Detects memory/process injection patterns."
+                        elif "dropper" in name_l or "embedded" in name_l:
+                            return "HIGH", "Dropper", "Detects embedded executable payloads."
+                        elif "ransom" in name_l:
+                            return "CRITICAL", "Ransomware", "Detects file encryption and extortion characteristics."
+                        elif "backdoor" in name_l or "c2" in name_l:
+                            return "CRITICAL", "C2 / Backdoor", "Detects remote access tool characteristics."
+                        elif "keylogger" in name_l:
+                            return "HIGH", "Credential Access", "Detects keystroke logging hooks."
+                        return "MEDIUM", "Generic Malware", "Signature matching suspicious executable structures."
+
+                    for rule in yara_list:
+                        sev, cat, desc = get_rule_details(rule)
+                        sev_styled = f"<font color='#dc2626'>{sev}</font>"
+                        rule_styled = f"{rule}"
+                        yara_rows.append([
+                            Paragraph(rule_styled, self.normal),
+                            Paragraph(sev_styled, self.normal),
+                            Paragraph(cat, self.normal),
+                            Paragraph(desc, self.normal)
+                        ])
+
+                    t_yara = TableFormatter.build_table(
+                        data=yara_rows,
+                        col_widths=[140, 80, 104, 180],
+                        bg_color=self.bg_light,
+                        border_color=self.border_color,
+                        is_long=True,
+                        repeat_rows=1,
+                        valign='TOP',
+                        padding=6
+                    )
+                    story.append(t_yara)
+
+                story.append(Spacer(1, 8))
+
+                # Dynamic Analyst Summary for Section 8
+                if not yara_list:
+                    sec8_summary = (
+                        f"The sample <b>{target_name}</b> has cleared all integrated YARA threat signature repositories. "
+                        "No known malicious file patterns, common wrapper structures, or dynamic code injection signatures "
+                        "were identified statically. However, this does not rule out novel or custom-built zero-day threats."
+                    )
+                else:
+                    rule_names = ", ".join(yara_list)
+                    sec8_summary = (
+                        f"YARA signature analysis for <b>{target_name}</b> triggered matches on <b>{len(yara_list)}</b> distinct threat indicators: <b>{rule_names}</b>. "
+                        "The matching YARA rules provide high-confidence alerts matching known evasion, injection, or dropper logic. "
+                        "These findings represent immediate indicators of compromise (IOCs) that validate the severity of threat scores. "
+                        "Security teams should prioritize sandboxed detonation to monitor for the corresponding actions in memory."
+                    )
+                story.append(Paragraph("<b>Analysis Summary:</b>", self.normal_bold))
+                story.append(Paragraph(sec8_summary, self.normal))
+                story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 8: SUSPICIOUS IMPORTS
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("8. Suspicious Imports", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            api_explanations = {
+                "virtualalloc": "Memory allocation (commonly used for loading dynamic payloads or shellcode)",
+                "virtualallocex": "Remote process memory allocation (process injection)",
+                "writeprocessmemory": "Writes memory to remote process (process injection)",
+                "createremotethread": "Spawns remote thread in targeted process (process injection execution)",
+                "ntwritevirtualmemory": "Direct system call process write (stealthy process injection)",
+                "zwunmapviewofsection": "Hollows out legitimate process section (process hollowing)",
+                "ntunmapviewofsection": "Hollows out legitimate process section (process hollowing)",
+                "adjusttokenprivileges": "Modifies process token privileges (privilege escalation)",
+                "createprocess": "Creates new child process (process execution / spawning payloads)",
+                "createprocessa": "Creates new child process (process execution / spawning payloads)",
+                "createprocessw": "Creates new child process (process execution / spawning payloads)",
+                "winexec": "Launches external process / command execution",
+                "shellexecute": "Opens files or runs programs via Shell API",
+                "internetopen": "Initializes WinINet session (network communication)",
+                "internetopena": "Initializes WinINet session (network communication)",
+                "internetopenurl": "Downloads external URL payloads or connects to C2",
+                "httpopenrequest": "Creates HTTP connections to C2 server",
+                "wsasocket": "Low-level socket creation (backdoor / raw network shells)",
+                "getprocaddress": "Retrieves DLL export address (dynamic API resolution to hide static imports)",
+                "loadlibrary": "Dynamically loads a DLL module at runtime",
+                "loadlibrarya": "Dynamically loads a DLL module at runtime",
+                "isdebuggerpresent": "Checks for debugging session (anti-analysis / evasion)",
+                "checkremotedebuggerpresent": "Queries kernel for debugger attachments (anti-analysis / evasion)",
+                "ntqueryinformationprocess": "Queries internal process structures (anti-analysis / detection evasion)"
+            }
+
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+
+                imp_data = file_data.get("Suspicious Imports", {})
+                apis_found_str = imp_data.get("APIs", "")
+                
+                if not imp_data or apis_found_str == "None detected" or not apis_found_str:
+                    story.append(Paragraph("No suspicious API imports were identified in this binary.", self.normal))
+                else:
+                    imp_rows = [[
+                        Paragraph("<b>API Function</b>", self.normal_bold),
+                        Paragraph("<b>Interpreted Reason / Malware Application</b>", self.normal_bold)
+                    ]]
+                    
+                    apis_list = [x.strip() for x in apis_found_str.split(",") if x.strip()]
+                    
+                    for api in apis_list:
+                        api_l = api.lower()
+                        reason = "Tracked API (general system utility / threat observation)"
+                        for key_api, desc in api_explanations.items():
+                            if key_api in api_l:
+                                reason = desc
+                                break
+                        
+                        api_styled = f"<font color='#dc2626'>{api}</font>"
+                        imp_rows.append([
+                            Paragraph(api_styled, self.normal),
+                            Paragraph(reason, self.normal)
+                        ])
+                    
+                    t_imp = TableFormatter.build_table(
+                        data=imp_rows,
+                        col_widths=[180, 324],
+                        bg_color=self.bg_light,
+                        border_color=self.border_color,
+                        is_long=True,
+                        repeat_rows=1,
+                        valign='TOP',
+                        padding=6
+                    )
+                    story.append(t_imp)
+
+                story.append(Spacer(1, 8))
+
+                # Dynamic Analyst Summary for Section 7
+                if not imp_data or apis_found_str == "None detected" or not apis_found_str:
+                    sec7_summary = (
+                        f"The import address table (IAT) of <b>{target_name}</b> does not expose any tracked high-risk APIs. "
+                        "While it is possible that the binary resolves APIs dynamically at runtime (using LoadLibrary/GetProcAddress), "
+                        "no obvious suspicious patterns such as static process injection or anti-debugging functions are exposed in the metadata."
+                    )
+                else:
+                    sec7_summary = (
+                        f"The import table analysis of <b>{target_name}</b> shows exposure of <b>{len(apis_list)}</b> tracked high-risk APIs: "
+                        f"<b>{apis_found_str}</b>. "
+                        "These APIs represent standard mechanisms utilized by malware authors to allocate memory, spawn covert threads, "
+                        "evade sandbox debuggers, or execute commands. Collective imports of these functions strongly increase the likelihood "
+                        "of active payload behaviors, and security teams must monitor processes spawned by this binary for thread hijacking."
+                    )
+                story.append(Paragraph("<b>Analysis Summary:</b>", self.normal_bold))
+                story.append(Paragraph(sec7_summary, self.normal))
+                story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 9: PE HEADER ANALYSIS
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("9. PE Header Analysis", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+
+                pe_headers_data = file_data.get("PE Headers", {})
+                if not pe_headers_data:
+                    story.append(Paragraph("PE Header structure is invalid or could not be read.", self.normal))
+                else:
+                    pe_table_data = [
+                        [Paragraph("<b>Header Parameter</b>", self.normal_bold), Paragraph("<b>Header Value</b>", self.normal_bold)],
+                        [Paragraph("Machine Architecture", self.normal), Paragraph(str(pe_headers_data.get("Machine Architecture", "N/A")), self.normal)],
+                        [Paragraph("Compile Timestamp", self.normal), Paragraph(str(pe_headers_data.get("Compile Timestamp", "N/A")), self.normal)],
+                        [Paragraph("DOS Header Offset (e_lfanew)", self.normal), Paragraph(str(pe_headers_data.get("DOS Header Offset (e_lfanew)", "N/A")), self.normal)],
+                        [Paragraph("Address Of Entry Point", self.normal), Paragraph(str(pe_headers_data.get("Address of Entry Point", "N/A")), self.normal)],
+                        [Paragraph("Entry Point Section", self.normal), Paragraph(str(pe_headers_data.get("Entry Point Section Location", "N/A")), self.normal)],
+                        [Paragraph("Image Base Address", self.normal), Paragraph(str(pe_headers_data.get("Image Base", "N/A")), self.normal)],
+                        [Paragraph("Number Of Sections", self.normal), Paragraph(str(pe_headers_data.get("Number of Sections", "N/A")), self.normal)]
+                    ]
+                    
+                    t_pe = TableFormatter.build_table(
+                        data=pe_table_data,
+                        col_widths=[200, 304],
+                        bg_color=self.bg_light,
+                        border_color=self.border_color,
+                        is_long=True,
+                        repeat_rows=1,
+                        valign='TOP',
+                        padding=6
+                    )
+                    story.append(t_pe)
+
+                story.append(Spacer(1, 15))
+
+        # --------------------------------------------------
+        # SECTION 10: EXTRACTED ARTIFACTS
+        # --------------------------------------------------
+        story.append(PageBreak())
+        story.append(Paragraph("10. Extracted Artifacts", self.h2_style))
+        story.append(Spacer(1, 10))
+
+        if not target_binaries:
+            story.append(Paragraph("No PE executable static analysis results available.", self.normal))
+            story.append(Spacer(1, 15))
+        else:
+            for idx, target_name in enumerate(target_binaries):
+                file_data = static_results[target_name]
+                story.append(Paragraph(f"<font size=11 color='#1e3a8a'><b>Executable: {target_name}</b></font>", self.normal_bold))
+                story.append(Spacer(1, 6))
+
+                art_data = file_data.get("Extracted Artifacts", {})
+                
+                art_rows = []
+                for k in ["IPv4", "IPv6", "URL", "Registry", "Password-Like"]:
+                    v = art_data.get(k, []) if isinstance(art_data, dict) else []
+                    items = [str(x) for x in v] if isinstance(v, list) else ([str(v)] if v else [])
+                    items_clean = sorted(list(set([x.strip() for x in items if x.strip()])))
+                    v_str = ", ".join(items_clean) if items_clean else "None detected"
+                    
+                    art_rows.append([
+                        Paragraph(f"<b>{k}</b>", self.normal_bold),
+                        Paragraph(v_str, self.code_style)
+                    ])
+
+                t_art = TableFormatter.build_table(
+                    data=art_rows,
+                    col_widths=[120, 384],
                     bg_color=self.bg_light,
                     border_color=self.border_color,
                     is_long=True,
@@ -852,222 +1596,8 @@ class PDFReportBuilder:
                     valign='TOP',
                     padding=6
                 )
-                story.append(t_sect)
-            else:
-                story.append(Paragraph("N/A - Section analysis not performed", self.normal))
-            story.append(Spacer(1, 8))
-            
-            # Overall File Entropy (printed below Section Analysis)
-            file_entropy_val = file_data.get("PE Headers", {}).get("Overall File Entropy", "N/A")
-            is_overall_entropy_high = False
-            try:
-                is_overall_entropy_high = float(file_entropy_val) >= 7.0
-            except ValueError:
-                pass
-            
-            if is_overall_entropy_high:
-                entropy_p = f"<font color='#ea580c'><b>[!] {file_entropy_val} (High - Indicates obfuscation/packing)</b></font>"
-            else:
-                entropy_p = file_entropy_val
-
-            story.append(Paragraph(f"<b>Overall File Entropy:</b> {entropy_p}", self.normal))
-            story.append(Spacer(1, 10))
-
-            # PE Headers
-            story.append(Paragraph("PE Headers", self.h2_style))
-            pe_headers_data = file_data.get("PE Headers", {})
-            if pe_headers_data:
-                pe_rows = []
-                for k, v in pe_headers_data.items():
-                    if k == "Overall File Entropy":
-                        continue
-                    if k == "Detected Packer":
-                        v_str = str(v)
-                        packer_keywords = ["packer", "protector", "themida", "vmp", "upx", "enigma", "pelock", "aspack", "fsg", "petite", "pecompact"]
-                        compiler_keywords = ["msvc", "gcc", "mingw", "go compiler", "rust compiler", "delphi", "pyinstaller"]
-                        v_lower = v_str.lower()
-                        
-                        if any(kw in v_lower for kw in packer_keywords):
-                            styled_v = f"<font color='#ea580c'><b>[!] {v_str}</b></font>"
-                        elif any(kw in v_lower for kw in compiler_keywords):
-                            styled_v = f"<font color='#16a34a'><b>{v_str}</b></font>"
-                        else:
-                            styled_v = v_str
-                        
-                        pe_rows.append([
-                            Paragraph("<b>Compiler / Packer</b>", self.normal_bold),
-                            Paragraph(styled_v, self.normal)
-                        ])
-                        continue
-                    pe_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)])
-                t_pe = TableFormatter.build_table(
-                    data=pe_rows,
-                    col_widths=[200, 304],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=0,
-                    valign='TOP',
-                    padding=6
-                )
-                story.append(t_pe)
-            else:
-                story.append(Paragraph("N/A", self.normal))
-            story.append(Spacer(1, 10))
-
-            # Mitigations
-            story.append(Paragraph("Security Mitigations", self.h2_style))
-            mit_data = file_data.get("Mitigations", {})
-            if mit_data:
-                mit_rows = [[Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(str(v), self.normal)] for k, v in mit_data.items()]
-                t_mit = TableFormatter.build_table(
-                    data=mit_rows,
-                    col_widths=[200, 304],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=0,
-                    valign='TOP',
-                    padding=6
-                )
-                story.append(t_mit)
-            else:
-                story.append(Paragraph("N/A", self.normal))
-            story.append(Spacer(1, 10))
-
-            # Suspicious Imports
-            story.append(Paragraph("Suspicious Imports", self.h2_style))
-            imp_data = file_data.get("Suspicious Imports", {})
-            if imp_data:
-                imp_rows = []
-                def get_import_color(apis_str):
-                    critical_apis = ["virtualallocex", "writeprocessmemory", "createremotethread", "ntwritevirtualmemory", "zwunmapviewofsection", "ntunmapviewofsection", "adjusttokenprivileges"]
-                    apis_str_lower = str(apis_str).lower()
-                    if any(api in apis_str_lower for api in critical_apis):
-                        return "#dc2626"
-                    return "#ea580c"
-                apis_val = imp_data.get("APIs", "")
-                imp_color = get_import_color(apis_val) if apis_val and apis_val != "None detected" else "#1e293b"
-                for k, v in imp_data.items():
-                    if k == "APIs" and v != "None detected":
-                        imp_rows.append([
-                            Paragraph(f"<font color='{imp_color}'><b>{k}</b></font>", self.normal_bold),
-                            Paragraph(f"<font color='{imp_color}'>{v}</font>", self.normal)
-                        ])
-                    else:
-                        imp_rows.append([
-                            Paragraph(f"<b>{k}</b>", self.normal_bold),
-                            Paragraph(str(v), self.normal)
-                        ])
-                t_imp = TableFormatter.build_table(
-                    data=imp_rows,
-                    col_widths=[150, 354],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=0,
-                    valign='TOP',
-                    padding=6
-                )
-                story.append(t_imp)
-            else:
-                story.append(Paragraph("N/A", self.normal))
-            story.append(Spacer(1, 10))
-
-            # Extracted Artifacts
-            story.append(Paragraph("Extracted Artifacts", self.h2_style))
-            art_data = file_data.get("Extracted Artifacts", {})
-            if art_data:
-                art_rows = []
-                for k in ["IPv4", "IPv6", "URL", "Registry", "Password-Like"]:
-                    v = art_data.get(k, [])
-                    items = [str(x) for x in v] if isinstance(v, list) else ([str(v)] if v else [])
-                    
-                    if len(items) > 40:
-                        v_str = ", ".join(items[:40]) + f", ... and {len(items) - 40} more items (see JSON)"
-                    else:
-                        v_str = ", ".join(items)
-                        
-                    art_rows.append([Paragraph(f"<b>{k}</b>", self.normal_bold), Paragraph(v_str, self.code_style)])
-                
-                t_art = TableFormatter.build_table(
-                    data=art_rows,
-                    col_widths=[120, 384],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=0,
-                    valign='TOP',
-                    padding=6
-                )
                 story.append(t_art)
-            else:
-                story.append(Paragraph("N/A", self.normal))
-            story.append(Spacer(1, 10))
-
-            # YARA Signatures
-            story.append(Paragraph("YARA Signatures", self.h2_style))
-            yara_data = file_data.get("YARA Signatures", {})
-            if yara_data:
-                yara_rows = []
-                def get_yara_color(rules_str):
-                    critical_keywords = ["ransomware", "injection", "hollow", "trojan", "backdoor", "mimikatz", "credential", "keylogger", "malware", "exploit"]
-                    rules_lower = str(rules_str).lower()
-                    if any(kw in rules_lower for kw in critical_keywords):
-                        return "#dc2626"
-                    return "#ea580c"
-                matched_rules = yara_data.get("Matched Rules") or yara_data.get("Rules", "")
-                yara_color = get_yara_color(matched_rules) if matched_rules and matched_rules != "Clean" else "#1e293b"
-                for k, v in yara_data.items():
-                    val_str = str(v)
-                    if k.lower() in ("rules", "hits", "matched rules") and val_str != "0" and val_str != "N/A" and val_str != "Clean":
-                        val_str = f"<font color='{yara_color}'><b>{val_str}</b></font>"
-                    yara_rows.append([
-                        Paragraph(f"<b>{k}</b>", self.normal_bold),
-                        Paragraph(val_str, self.normal)
-                    ])
-                t_yara = TableFormatter.build_table(
-                    data=yara_rows,
-                    col_widths=[150, 354],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=True,
-                    repeat_rows=0,
-                    valign='TOP',
-                    padding=6
-                )
-                story.append(t_yara)
-            else:
-                story.append(Paragraph("N/A", self.normal))
-            story.append(Spacer(1, 10))
-
-        # 5. Manifest Analysis
-        story.append(Paragraph("Manifest Analysis", self.h2_style))
-        has_manifest = False
-        for target_name, file_data in static_results.items():
-            man_data = file_data.get("Manifest Data", {})
-            if man_data:
-                has_manifest = True
-                manifest_status = man_data.get("Manifest Status", "Parsed Successfully")
-                exec_level = man_data.get("Requested Execution Level", "Unknown")
-                man_rows = [
-                    [Paragraph("<b>XML Manifest Status</b>", self.normal_bold), Paragraph(manifest_status, self.normal)],
-                    [Paragraph("<b>Requested Execution Level</b>", self.normal_bold), Paragraph(exec_level, self.normal)]
-                ]
-                t_man = TableFormatter.build_table(
-                    data=man_rows,
-                    col_widths=[180, 324],
-                    bg_color=self.bg_light,
-                    border_color=self.border_color,
-                    is_long=False,
-                    repeat_rows=0,
-                    valign='TOP',
-                    padding=6
-                )
-                story.append(t_man)
-                break
-        if not has_manifest:
-            story.append(Paragraph("N/A - Manifest analysis not performed", self.normal))
+                story.append(Spacer(1, 15))
 
         story.append(PageBreak())
 

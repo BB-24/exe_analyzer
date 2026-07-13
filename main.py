@@ -910,7 +910,7 @@ async def terminate_analysis_endpoint(sha256: str):
     if not sess:
         db_session = SessionLocal()
         try:
-            record = db_session.query(AnalysisHistory).filter_by(sha256_hash=sha256).first()
+            record = db_session.query(AnalysisHistory).filter_by(sha256_hash=sha256).order_by(AnalysisHistory.id.desc()).first()
             if record and record.status in ("Queued", "Processing"):
                 record.status = "Terminated"
                 db_session.commit()

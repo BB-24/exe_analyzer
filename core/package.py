@@ -15,7 +15,7 @@ class PackageModule:
         self.max_depth = self.config['system'].get('max_unpack_depth', 3)
         
         # Targets for FR-PKG-02
-        self.flagged_extensions = ['.exe', '.dll', '.sys', '.bat', '.ps1', '.vbs', '.js', '.wsf']
+        self.flagged_extensions = ['.exe', '.dll', '.sys', '.bat', '.ps1', '.vbs', '.js', '.wsf', '.msi']
 
     def process_file(self, filepath, analysis_id):
         """
@@ -114,8 +114,8 @@ class PackageModule:
                     ext = ext.lower()
                     is_flagged = ext in self.flagged_extensions
 
-                    # FR-PKG-03: Generate individual SHA256 hashes
-                    sha256_hash = self._calculate_sha256(full_path)
+                    # FR-PKG-03: Generate individual hashes
+                    file_hashes = self._calculate_hashes(full_path)
 
                     if is_flagged:
                         pub.sendMessage("gui.log", msg=f"  [WARNING] Suspicious embedded file found: {rel_path}")
@@ -133,7 +133,9 @@ class PackageModule:
                         "Extension": ext,
                         "Depth": depth,
                         "Is_Flagged": is_flagged,
-                        "SHA256": sha256_hash,
+                        "MD5": file_hashes["MD5"],
+                        "SHA1": file_hashes["SHA1"],
+                        "SHA256": file_hashes["SHA256"],
                         "Size_Bytes": size_bytes
                     }
                     
@@ -143,13 +145,25 @@ class PackageModule:
 
         return inventory_list
 
-    def _calculate_sha256(self, filepath):
-        """Helper function to memory-efficiently calculate SHA256."""
+    def _calculate_hashes(self, filepath):
+        """Helper function to memory-efficiently calculate MD5, SHA-1, and SHA-256."""
+        md5_hash = hashlib.md5()
+        sha1_hash = hashlib.sha1()
         sha256_hash = hashlib.sha256()
         try:
             with open(filepath, "rb") as f:
                 for chunk in iter(lambda: f.read(65536), b""):
+                    md5_hash.update(chunk)
+                    sha1_hash.update(chunk)
                     sha256_hash.update(chunk)
-            return sha256_hash.hexdigest()
+            return {
+                "MD5": md5_hash.hexdigest(),
+                "SHA1": sha1_hash.hexdigest(),
+                "SHA256": sha256_hash.hexdigest()
+            }
         except IOError:
-            return "ERROR_READING_FILE"
+            return {
+                "MD5": "ERROR_READING_FILE",
+                "SHA1": "ERROR_READING_FILE",
+                "SHA256": "ERROR_READING_FILE"
+            }
