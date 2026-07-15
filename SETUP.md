@@ -71,7 +71,7 @@ MARS uses a **dual-VM architecture**:
 | **VMware Workstation Pro** | 16.x+ | Virtual machine hypervisor |
 | **Windows 10/11** | Any | Host OS (VM A) and Sandbox Guest OS (VM B) |
 | **Python** | 3.12+ | Runtime for MARS and sandbox agents |
-| **Git** | Any | Clone the repository |
+
 
 > [!IMPORTANT]
 > Both VM A and VM B must run **Windows**. The sandbox agents use Windows-specific APIs (`pywin32`, `wmi`, `winreg`, ProcMon).
